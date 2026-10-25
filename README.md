@@ -35,13 +35,15 @@ Before a program assembles, memory and every register are zero and **Step** is d
 
 ## Display format
 
-**Hex**, **Decimal**, and **Binary** change only how values are drawn. The choice is stored in `localStorage` under `z80debug.displayFormat`.
+**Hex**, **Decimal**, **Binary**, and **ASCII** change only how values are drawn. The choice is stored in `localStorage` under `z80debug.displayFormat`.
 
-- Bytes are 2 hex digits, 3 decimal columns, or 8 binary bits.
-- Words and addresses are 4 hex digits, 5 decimal columns, or 16 binary bits.
+- Bytes are 2 hex digits, 3 decimal columns, 8 binary bits, or one ASCII character.
+- Words and addresses are 4 hex digits, 5 decimal columns, 16 binary bits, or two ASCII characters (high byte, then low byte).
 - Hex and binary are padded with leading zeros. Decimal is padded with spaces.
+- ASCII shows the glyph for bytes `0x20`–`0x7E`. Every other byte is a middle dot (`·`), so a byte is always one column and a word is always two. `0x4142` is `AB`. `0x0100` is `··`.
 - Flag letters stay letters. Numeric F follows the selected format.
-- A memory row shows 16 bytes in hex, 8 in decimal, and 4 in binary.
+- A memory row shows 16 bytes in hex and ASCII, 8 in decimal, and 4 in binary.
+- In ASCII mode the value columns are the characters, so the separate ASCII sidebar is hidden. The sidebar stays for the other formats.
 - The disassembly mnemonic stays in hexadecimal. The bytes beside it follow the selected format, as do registers, F, memory, and addresses.
 
 After each step, only the registers, flag bits, bank labels, and memory bytes that just changed are marked. The mark is replaced on the next step. A write also shows the old value and the new value.

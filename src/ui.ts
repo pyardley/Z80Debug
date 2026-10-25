@@ -3,10 +3,12 @@ import { disassembleAt } from "./disasm";
 import {
   bytesPerRow,
   formatByte,
+  formatNames,
   formatWord,
   loadFormat,
   parseAddress,
   saveFormat,
+  type DisplayFormat,
 } from "./format";
 import { Machine, type RegisterBank } from "./machine";
 import { SAMPLE_SOURCE } from "./sample";
@@ -42,6 +44,7 @@ export function mount(root: HTMLElement): void {
         <button type="button" id="format-hex" role="radio">Hex</button>
         <button type="button" id="format-decimal" role="radio">Decimal</button>
         <button type="button" id="format-binary" role="radio">Binary</button>
+        <button type="button" id="format-ascii" role="radio">ASCII</button>
       </div>
     </header>
     <p id="caption" class="caption">
@@ -105,7 +108,7 @@ export function mount(root: HTMLElement): void {
     render();
   });
 
-  for (const name of ["hex", "decimal", "binary"] as const) {
+  for (const name of formatNames()) {
     required<HTMLButtonElement>(root, `#format-${name}`).addEventListener("click", () => {
       format = name;
       saveFormat(window.localStorage, format);
@@ -135,6 +138,7 @@ export function mount(root: HTMLElement): void {
   render();
 
   function render(): void {
+    root.classList.toggle("format-ascii", format === "ascii");
     paintFormat();
     paintStatus();
     paintInstruction();
@@ -147,7 +151,7 @@ export function mount(root: HTMLElement): void {
   }
 
   function paintFormat(): void {
-    for (const name of ["hex", "decimal", "binary"] as const) {
+    for (const name of formatNames()) {
       const button = required<HTMLButtonElement>(root, `#format-${name}`);
       const selected = format === name;
       button.setAttribute("aria-checked", selected ? "true" : "false");
@@ -165,7 +169,7 @@ export function mount(root: HTMLElement): void {
       return;
     }
     const pc = formatWord(machine.cpu.regs.pc, format);
-    const shown = format === "hex" ? "hexadecimal" : format === "decimal" ? "decimal" : "binary";
+    const shown = formatStatusLabel(format);
     if (machine.halted) {
       status.classList.add("halted");
       status.textContent = `Halted at PC ${pc}. Step is stopped. Values shown in ${shown}.`;
@@ -383,6 +387,7 @@ export function mount(root: HTMLElement): void {
       const bytes = document.createElement("span");
       bytes.className = "bytes";
       let ascii = "";
+      const showSidebar = format !== "ascii";
       for (let offset = 0; offset < width; offset++) {
         const location = (address + offset) & 0xffff;
         const value = machine.memory[location];
@@ -397,12 +402,17 @@ export function mount(root: HTMLElement): void {
           cell.title = "PC";
         }
         bytes.append(cell);
-        ascii += value >= 32 && value < 127 ? String.fromCharCode(value) : ".";
+        if (showSidebar) {
+          ascii += value >= 32 && value < 127 ? String.fromCharCode(value) : ".";
+        }
       }
-      const text = document.createElement("span");
-      text.className = "ascii";
-      text.textContent = ascii;
-      line.append(bytes, text);
+      line.append(bytes);
+      if (showSidebar) {
+        const text = document.createElement("span");
+        text.className = "ascii";
+        text.textContent = ascii;
+        line.append(text);
+      }
       host.append(line);
     }
   }
@@ -427,6 +437,19 @@ export function mount(root: HTMLElement): void {
 
   function formatBytes(bytes: number[]): string {
     return bytes.map((byte) => formatByte(byte, format)).join(" ");
+  }
+}
+
+function formatStatusLabel(format: DisplayFormat): string {
+  switch (format) {
+    case "hex":
+      return "hexadecimal";
+    case "decimal":
+      return "decimal";
+    case "binary":
+      return "binary";
+    case "ascii":
+      return "ASCII";
   }
 }
 
