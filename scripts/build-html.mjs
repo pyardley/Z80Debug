@@ -125,6 +125,8 @@ function assertBundle(code) {
     "console-echo",
     "Current instruction, line ",
     "z80debug.displayFormat",
+    "Top of stack",
+    "stack.asm",
   ]) {
     if (!code.includes(needle)) {
       throw new Error(`bundle missing ${JSON.stringify(needle)}`);
@@ -239,6 +241,8 @@ function assertPlayBundle(code) {
     "Current instruction, line ",
     "z80debug.displayFormat",
     "EX AF,AF' swaps only AF.",
+    "Top of stack",
+    "stack.asm",
   ]) {
     if (!code.includes(needle)) {
       throw new Error(`play bundle missing ${JSON.stringify(needle)}`);

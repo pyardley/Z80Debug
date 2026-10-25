@@ -17,11 +17,13 @@ function facts(partial: Partial<MotionFacts> & Pick<MotionFacts, "mnemonic">): M
     de: 0,
     hl: 0,
     sp: 0,
+    pc: 0,
     ix: 0,
     iy: 0,
     i: 0,
     r: 0,
     spBefore: 0,
+    pcBefore: 0,
     hlBefore: 0,
     bcBefore: 0,
     deBefore: 0,
@@ -220,5 +222,41 @@ describe("examples", () => {
     }
     expect(machine.lastInstruction).toBe("IN A,(0X00)");
     expect(machine.cpu.regs.a).toBe(0x51);
+  });
+
+  it("flies PUSH and CALL onto the stack and POP and RET back off", () => {
+    const machine = new Machine();
+    expect(machine.assemble(exampleById("stack")?.source ?? "")).toBe(true);
+    const seen: { mnemonic: string; plan: MotionPlan; sp: number }[] = [];
+    while (!machine.halted && machine.steps < 12) {
+      const base = captureMotionBase(machine);
+      machine.step();
+      seen.push({ mnemonic: machine.lastInstruction, plan: planAfterStep(base, machine), sp: machine.cpu.regs.sp });
+    }
+    expect(seen.map((step) => step.mnemonic)).toEqual([
+      "LD SP,0XFF00",
+      "LD HL,0XBEEF",
+      "PUSH HL",
+      "CALL 0X010C",
+      "RET",
+      "POP HL",
+      "HALT",
+    ]);
+    expect(seen[2].sp).toBe(0xfefe);
+    expect(seen[2].plan).toMatchObject({
+      moves: [{ from: { type: "reg", name: "hl" }, to: { type: "mem", address: 0xfefe }, value: 0xbeef, width: 16 }],
+    });
+    expect(seen[3].sp).toBe(0xfefc);
+    expect(seen[3].plan).toMatchObject({
+      moves: [{ from: { type: "reg", name: "pc" }, to: { type: "mem", address: 0xfefc }, value: 0x010a, width: 16 }],
+    });
+    expect(seen[4].sp).toBe(0xfefe);
+    expect(seen[4].plan).toMatchObject({
+      moves: [{ from: { type: "mem", address: 0xfefc }, to: { type: "reg", name: "pc" }, value: 0x010a }],
+    });
+    expect(seen[5].sp).toBe(0xff00);
+    expect(seen[5].plan).toMatchObject({
+      moves: [{ from: { type: "mem", address: 0xfefe }, to: { type: "reg", name: "hl" }, value: 0xbeef }],
+    });
   });
 });

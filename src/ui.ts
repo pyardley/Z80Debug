@@ -24,6 +24,7 @@ import {
   writeHandle,
 } from "./files";
 import { Machine, type RegisterBank } from "./machine";
+import { paintStackPane } from "./stack";
 
 const SOURCE_LINE_HEIGHT = 20;
 
@@ -61,6 +62,7 @@ export function mount(root: HTMLElement): void {
   let format = readDisplayFormat();
   let lookAddress: number | undefined;
   let followWrite = true;
+  const stackWindow: { top: number | undefined } = { top: undefined };
 
   const exampleOptions = EXAMPLES.map((example) => {
     const selected = example.id === "sample" ? " selected" : "";
@@ -101,6 +103,8 @@ export function mount(root: HTMLElement): void {
       EX AF,AF' swaps only AF. EXX swaps BC, DE, and HL together and does not touch AF.
       Active is the bank instructions read and write. Shadow is the other bank.
     </p>
+    <div class="bench">
+    <div class="bench-main">
     <section class="console-pane" aria-label="Console">
       <div class="pane-head">
         <h2>Console</h2>
@@ -158,7 +162,8 @@ export function mount(root: HTMLElement): void {
         <div id="banks" class="banks"></div>
       </section>
     </div>
-    <section class="memory-pane">
+    </div>
+    <aside class="memory-pane" aria-label="Memory">
       <div>
         <div class="pane-head"><h2>Memory around PC</h2></div>
         <div id="memory-pc" class="dump"></div>
@@ -176,7 +181,14 @@ export function mount(root: HTMLElement): void {
         <div id="writes" class="writes"></div>
         <div id="memory-focus" class="dump"></div>
       </div>
-    </section>
+      <div>
+        <div class="pane-head"><h2>Stack</h2></div>
+        <p class="hint">The stack grows downward. The byte at SP is the low byte of the top word. The row marked SP is the top of the stack.</p>
+        <div id="stack-sp" class="stack-sp"></div>
+        <div id="memory-stack" class="dump stack-dump"></div>
+      </div>
+    </aside>
+    </div>
     <input id="file-input" type="file" accept=".asm,.z80,.s,.txt,text/plain" hidden>
   `;
 
@@ -202,12 +214,14 @@ export function mount(root: HTMLElement): void {
     machine.assemble(editor.value);
     lookAddress = undefined;
     followWrite = true;
+    stackWindow.top = undefined;
     render();
   });
   required<HTMLButtonElement>(root, "#reset").addEventListener("click", () => {
     machine.reset();
     lookAddress = undefined;
     followWrite = true;
+    stackWindow.top = undefined;
     render();
   });
   required<HTMLButtonElement>(root, "#step").addEventListener("click", () => {
@@ -324,6 +338,7 @@ export function mount(root: HTMLElement): void {
     paintSystem();
     paintBanks();
     paintMemory();
+    paintStack();
     paintErrors();
     paintSource();
     paintConsole();
@@ -491,6 +506,7 @@ export function mount(root: HTMLElement): void {
     machine.assemble(source);
     lookAddress = undefined;
     followWrite = true;
+    stackWindow.top = undefined;
     render();
   }
 
@@ -728,6 +744,20 @@ export function mount(root: HTMLElement): void {
       row.append(bit);
     }
     return row;
+  }
+
+  function paintStack(): void {
+    paintStackPane(
+      required<HTMLElement>(root, "#memory-stack"),
+      required<HTMLElement>(root, "#stack-sp"),
+      stackWindow,
+      {
+        memory: machine.memory,
+        writes: machine.writes,
+        sp: machine.cpu.regs.sp,
+      },
+      format,
+    );
   }
 
   function paintMemory(): void {
