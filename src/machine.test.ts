@@ -49,6 +49,41 @@ VALUE EQU 7
     expect(Array.from(result.image.slice(0x200, 0x206))).toEqual([0x07, 0xaa, 0x34, 0x12, 0xff, 0xff]);
   });
 
+  it("maps each emitted address to the source line", () => {
+    const source = [
+      "VALUE EQU 1",
+      "      ORG 10H",
+      "above:",
+      "      NOP",
+      "      LD BC, 1234H",
+    ].join("\n");
+    const result = assemble(source);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.origin).toBe(0x10);
+    expect(result.sourceLines.get(0x10)).toBe(4);
+    expect(result.sourceLines.get(0x11)).toBe(5);
+    expect(result.sourceLines.get(0x12)).toBe(5);
+    expect(result.sourceLines.get(0x13)).toBe(5);
+    expect(result.sourceLines.has(0)).toBe(false);
+    expect(result.sourceLines.has(0x0f)).toBe(false);
+    expect(result.sourceLines.has(0x14)).toBe(false);
+    expect([...result.sourceLines.values()].includes(3)).toBe(false);
+  });
+
+  it("maps a label that shares its line with the instruction", () => {
+    const result = assemble("loop: LD A, 1\n");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.sourceLines.get(0)).toBe(1);
+    expect(result.sourceLines.get(1)).toBe(1);
+    expect(result.sourceLines.has(2)).toBe(false);
+  });
+
   it("names the line when assembly fails", () => {
     const result = assemble("NOP\nFOO\nLD A, 1\n");
     expect(result.ok).toBe(false);
@@ -176,6 +211,7 @@ describe("stepping", () => {
     const machine = new Machine();
     expect(machine.assemble(SAMPLE_SOURCE)).toBe(true);
     expect(machine.cpu.regs.pc).toBe(0x100);
+    expect(machine.sourceLine(machine.cpu.regs.pc)).toBe(5);
     expect(machine.ready).toBe(true);
     for (let count = 0; count < 8; count++) {
       machine.step();
@@ -186,6 +222,7 @@ describe("stepping", () => {
     expect(machine.cpu.regs.a).toBe(0);
     expect(machine.cpu.regs.f & 0xc1).toBe(0x41);
     machine.step();
+    expect(machine.sourceLine(machine.cpu.regs.pc)).toBe(15);
     const afterAf = machine.banks();
     expect(afterAf.main.afActive).toBe(false);
     expect(afterAf.alternate.afActive).toBe(true);
@@ -193,6 +230,7 @@ describe("stepping", () => {
     expect(afterAf.alternate.exxActive).toBe(false);
     expect(afterAf.main.bc).toBe(0x1234);
     machine.step();
+    expect(machine.sourceLine(machine.cpu.regs.pc)).toBe(16);
     const afterExx = machine.banks();
     expect(machine.lastInstruction).toBe("EXX");
     expect(afterExx.main.exxActive).toBe(false);
@@ -203,6 +241,29 @@ describe("stepping", () => {
     expect(afterExx.alternate.bc).toBe(0);
     expect(afterExx.main.afActive).toBe(false);
     expect(afterExx.alternate.afActive).toBe(true);
+  });
+
+  it("follows PC through an ordinary instruction, EX AF, and EXX", () => {
+    const machine = new Machine();
+    expect(machine.assemble(["      LD A, 1", "      EX AF, AF'", "      EXX", "      NOP"].join("\n"))).toBe(true);
+    expect(machine.sourceLine(machine.cpu.regs.pc)).toBe(1);
+    machine.step();
+    expect(machine.sourceLine(machine.cpu.regs.pc)).toBe(2);
+    machine.step();
+    expect(machine.sourceLine(machine.cpu.regs.pc)).toBe(3);
+    machine.step();
+    expect(machine.sourceLine(machine.cpu.regs.pc)).toBe(4);
+    machine.reset();
+    expect(machine.sourceLine(machine.cpu.regs.pc)).toBe(1);
+  });
+
+  it("has no source line when PC leaves the emitted bytes", () => {
+    const machine = new Machine();
+    expect(machine.assemble("      JP 200H\n      NOP\n")).toBe(true);
+    expect(machine.sourceLine(0)).toBe(1);
+    machine.step();
+    expect(machine.cpu.regs.pc).toBe(0x200);
+    expect(machine.sourceLine(machine.cpu.regs.pc)).toBeUndefined();
   });
 
   it("disables step until assembly succeeds", () => {

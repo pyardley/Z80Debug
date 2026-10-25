@@ -11,6 +11,8 @@ import {
 import { Machine, type RegisterBank } from "./machine";
 import { SAMPLE_SOURCE } from "./sample";
 
+const SOURCE_LINE_HEIGHT = 20;
+
 const FLAG_BITS: { key: string; label: string; mask: number }[] = [
   { key: "s", label: "S", mask: 0x80 },
   { key: "z", label: "Z", mask: 0x40 },
@@ -54,7 +56,16 @@ export function mount(root: HTMLElement): void {
           <h2>Source</h2>
           <span class="hint">Zilog mnemonics, case-insensitive. Comments start with ;</span>
         </div>
-        <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+        <div class="source-scroll" id="source-scroll">
+          <div class="source-gutter-clip">
+            <div class="source-gutter" id="source-gutter"></div>
+          </div>
+          <div class="source-code">
+            <div class="source-highlights" id="source-highlights" aria-hidden="true"></div>
+            <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="source-pointer"></textarea>
+          </div>
+        </div>
+        <p id="source-pointer" class="source-pointer" role="status" aria-live="polite"></p>
         <div id="errors" class="errors" role="status"></div>
       </section>
       <section class="cpu-pane">
@@ -87,6 +98,14 @@ export function mount(root: HTMLElement): void {
 
   const editor = required<HTMLTextAreaElement>(root, "#editor");
   editor.value = SAMPLE_SOURCE;
+  let markedLine: number | undefined;
+
+  editor.addEventListener("scroll", () => {
+    syncSourceScroll();
+  });
+  editor.addEventListener("input", () => {
+    paintSource();
+  });
 
   required<HTMLButtonElement>(root, "#assemble").addEventListener("click", () => {
     machine.assemble(editor.value);
@@ -142,6 +161,7 @@ export function mount(root: HTMLElement): void {
     paintBanks();
     paintMemory();
     paintErrors();
+    paintSource();
     markChanged(root, machine.changed);
     required<HTMLButtonElement>(root, "#step").disabled = !machine.ready || machine.halted;
   }
@@ -405,6 +425,94 @@ export function mount(root: HTMLElement): void {
       line.append(bytes, text);
       host.append(line);
     }
+  }
+
+  function paintSource(): void {
+    const sourceLines = editor.value.split("\n");
+    const count = Math.max(sourceLines.length, 1);
+    const pc = machine.cpu.regs.pc & 0xffff;
+    const line = machine.ready ? machine.sourceLine(pc) : undefined;
+    const gutter = required<HTMLElement>(root, "#source-gutter");
+    const highlights = required<HTMLElement>(root, "#source-highlights");
+    gutter.replaceChildren();
+    highlights.replaceChildren();
+    for (let index = 0; index < count; index++) {
+      const number = index + 1;
+      const current = line === number;
+      gutter.append(gutterRow(number, current));
+      const bar = document.createElement("div");
+      bar.className = current ? "highlight-row current" : "highlight-row";
+      highlights.append(bar);
+    }
+
+    const pointer = required<HTMLElement>(root, "#source-pointer");
+    pointer.classList.toggle("outside", machine.ready && line === undefined);
+    if (line !== undefined) {
+      pointer.textContent = currentLineLabel(line);
+    } else if (machine.ready) {
+      pointer.textContent = `Address ${formatWord(pc, format).trim()} is not in the source.`;
+    } else {
+      pointer.textContent = "";
+    }
+
+    const shell = required<HTMLElement>(root, "#source-scroll");
+    if (line === undefined) {
+      delete shell.dataset.currentLine;
+    } else {
+      shell.dataset.currentLine = String(line);
+    }
+
+    if (line !== markedLine) {
+      markedLine = line;
+      if (line !== undefined) {
+        revealSourceLine(line);
+      }
+    }
+    syncSourceScroll();
+  }
+
+  function currentLineLabel(line: number): string {
+    const text = editor.value.split("\n")[line - 1]?.trim() ?? "";
+    const snippet = text.length > 80 ? `${text.slice(0, 77)}...` : text;
+    return snippet === "" ? `Current instruction, line ${line}.` : `Current instruction, line ${line}: ${snippet}.`;
+  }
+
+  function gutterRow(line: number, current: boolean): HTMLElement {
+    const row = document.createElement("div");
+    row.className = current ? "gutter-row current" : "gutter-row";
+    const marker = document.createElement("span");
+    marker.className = "pc-marker";
+    if (current) {
+      marker.textContent = "▶";
+      marker.setAttribute("role", "img");
+      marker.setAttribute("aria-current", "location");
+      marker.setAttribute("aria-label", currentLineLabel(line));
+    } else {
+      marker.setAttribute("aria-hidden", "true");
+    }
+    const number = document.createElement("span");
+    number.className = "line-no";
+    number.textContent = String(line);
+    number.setAttribute("aria-hidden", "true");
+    row.append(marker, number);
+    return row;
+  }
+
+  function revealSourceLine(line: number): void {
+    const top = (line - 1) * SOURCE_LINE_HEIGHT;
+    const bottom = top + SOURCE_LINE_HEIGHT;
+    const viewTop = editor.scrollTop;
+    const viewBottom = viewTop + editor.clientHeight;
+    if (top < viewTop || bottom > viewBottom) {
+      const room = Math.max(0, editor.clientHeight - SOURCE_LINE_HEIGHT);
+      editor.scrollTop = Math.max(0, top - room / 2);
+    }
+  }
+
+  function syncSourceScroll(): void {
+    const offset = `translateY(${-editor.scrollTop}px)`;
+    required<HTMLElement>(root, "#source-gutter").style.transform = offset;
+    required<HTMLElement>(root, "#source-highlights").style.transform = offset;
   }
 
   function paintErrors(): void {

@@ -104,14 +104,119 @@ h3 { font-size: 0.95rem; }
   margin-bottom: 0.35rem;
 }
 
-textarea {
-  width: 100%;
+.source-scroll {
+  display: flex;
   height: 22rem;
-  resize: vertical;
+  overflow: hidden;
   border: 1px solid #c9c3b2;
   background: #fffef9;
-  padding: 0.4rem;
-  line-height: 1.4;
+  padding: 6px 0;
+  box-sizing: border-box;
+}
+
+.source-scroll:focus-within {
+  outline: 2px solid #1f4d32;
+  outline-offset: 1px;
+}
+
+.source-gutter-clip {
+  flex: none;
+  align-self: stretch;
+  width: 5rem;
+  overflow: hidden;
+  background: #f3efe4;
+  border-right: 1px solid #ddd6c4;
+}
+
+.source-gutter {
+  padding: 0 0.35rem 0 0.2rem;
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.gutter-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.3rem;
+  height: 20px;
+  color: #6d685e;
+}
+
+.gutter-row.current {
+  background: #cfe3b8;
+  box-shadow: inset 3px 0 0 #1f4d32;
+  color: #1c1b16;
+  font-weight: 700;
+}
+
+.pc-marker {
+  width: 1.1ch;
+  text-align: center;
+  color: #1f4d32;
+}
+
+.line-no {
+  min-width: 2ch;
+  text-align: right;
+}
+
+.source-code {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.source-highlights {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.highlight-row {
+  height: 20px;
+}
+
+.highlight-row.current {
+  background: #cfe3b8;
+  box-shadow: inset 3px 0 0 #1f4d32;
+}
+
+textarea {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border: 0;
+  margin: 0;
+  padding: 0 8px;
+  background: transparent;
+  line-height: 20px;
+  font-size: 14px;
+  overflow: auto;
+}
+
+.source-pointer {
+  margin-top: 0.35rem;
+  min-height: 1.2em;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #1f4d32;
+}
+
+.source-pointer.outside {
+  color: #6d4a00;
 }
 
 .status {
@@ -271,5 +376,5 @@ textarea {
 
 @media (max-width: 980px) {
   .workspace, .memory-pane, .banks { grid-template-columns: 1fr; }
-  textarea { height: 14rem; }
+  .source-scroll { height: 14rem; }
 }

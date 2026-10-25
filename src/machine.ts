@@ -65,6 +65,7 @@ export class Machine {
   readonly changed = new Set<string>();
 
   private image: Uint8Array | null = null;
+  private sourceLines: ReadonlyMap<number, number> = new Map();
   private afAltActive = false;
   private exxAltActive = false;
   private recording = false;
@@ -101,6 +102,7 @@ export class Machine {
     }
     this.image = result.image;
     this.origin = result.origin;
+    this.sourceLines = result.sourceLines;
     this.errors = [];
     this.ready = true;
     this.reset();
@@ -197,6 +199,10 @@ export class Machine {
         hl: altHl & 0xffff,
       },
     };
+  }
+
+  sourceLine(address: number): number | undefined {
+    return this.sourceLines.get(address & 0xffff);
   }
 
   byte(register: number): number {
