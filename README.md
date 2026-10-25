@@ -17,11 +17,13 @@ Ctrl+O or Cmd+O opens. Ctrl+S or Cmd+S saves. Ctrl+Shift+S or Cmd+Shift+S is Sav
 
 `z80debug.html` in the repository root is that same page as one file: the stylesheet in a `<style>` block and the app as one classic script. Download it and open it. Nothing else is fetched.
 
+`z80debug-play.html` is the same machine on a tabletop toy computer. A chip carries a register load, a memory transfer, or an immediate from the source line. `EX AF,AF'` and `EXX` slide the Active and Shadow tags separately. **Motion** turns that animation off. The numbers update either way.
+
 ```sh
 npm run build:html
 ```
 
-That regenerates `z80debug.html` after a source change. It needs the packages from `npm install`.
+That regenerates `z80debug.html` and `z80debug-play.html` after a source change. It needs the packages from `npm install`.
 
 ```sh
 npm test

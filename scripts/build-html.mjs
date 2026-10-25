@@ -102,6 +102,8 @@ const out = resolve(root, "z80debug.html");
 writeFileSync(out, html);
 process.stdout.write(`wrote z80debug.html (${Buffer.byteLength(html)} bytes)\n`);
 
+await writePlayPage();
+
 function assertBundle(code) {
   if (code.length < 400_000) {
     throw new Error(`bundle is unexpectedly small (${code.length} bytes)`);
@@ -142,4 +144,104 @@ function escapeScript(code) {
 
 function escapeStyle(code) {
   return code.replace(/<\/(style)/gi, "<\\/$1");
+}
+
+async function writePlayPage() {
+  const built = await esbuild.build({
+    absWorkingDir: root,
+    entryPoints: ["src/play-main.ts"],
+    bundle: true,
+    minify: true,
+    format: "iife",
+    target: "es2022",
+    platform: "browser",
+    charset: "utf8",
+    legalComments: "none",
+    sourcemap: false,
+    alias: {
+      fs: resolve(root, "src/shims/fs.ts"),
+      path: resolve(root, "src/shims/path.ts"),
+    },
+    loader: {
+      ".asm": "text",
+    },
+    write: false,
+    logLevel: "warning",
+  });
+  if (built.outputFiles.length !== 1) {
+    throw new Error(`expected one play JS file, got ${built.outputFiles.length}`);
+  }
+  const js = built.outputFiles[0].text;
+  const css = readFileSync(resolve(root, "src/play.css"), "utf8").replace(/\s+$/, "");
+  assertPlayBundle(js);
+  assertStylesheet(css);
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Z80Debug</title>
+<!--
+${NOTICE}
+-->
+<!-- Tabletop presentation of Z80Debug. The plain debugger is z80debug.html. -->
+<style>
+${escapeStyle(css)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+${escapeScript(js)}
+</script>
+</body>
+</html>
+`;
+  if (/<script\b[^>]*\btype\s*=/i.test(html)) {
+    throw new Error("play script must be classic, with no type attribute");
+  }
+  if (!html.includes("Copyright (c) 2019 Lawrence Kesteloot")) {
+    throw new Error("missing Lawrence Kesteloot copyright");
+  }
+  if (!html.includes("Copyright (c) 2021 Lawrence Kesteloot")) {
+    throw new Error("missing Lawrence Kesteloot copyright");
+  }
+  if (!html.includes("Copyright (c) 2026 Paul Yardley")) {
+    throw new Error("missing Paul Yardley copyright");
+  }
+  if (!html.includes("Permission is hereby granted, free of charge")) {
+    throw new Error("missing MIT permission paragraph");
+  }
+  const playOut = resolve(root, "z80debug-play.html");
+  writeFileSync(playOut, html);
+  process.stdout.write(`wrote z80debug-play.html (${Buffer.byteLength(html)} bytes)\n`);
+}
+
+function assertPlayBundle(code) {
+  if (code.length < 400_000) {
+    throw new Error(`play bundle is unexpectedly small (${code.length} bytes)`);
+  }
+  const trimmed = code.trim();
+  if (!trimmed.endsWith("();")) {
+    throw new Error("play bundle is not an IIFE");
+  }
+  if (/\brequire\s*\(/.test(code) || code.includes("process.argv") || code.includes("commander")) {
+    throw new Error("play bundle includes Node CLI code");
+  }
+  for (const needle of [
+    "Directory includes are not available in this debugger.",
+    "Binary inserts are not available in this debugger.",
+    "Tabletop toy computer",
+    "Motion on",
+    "Discard unsaved edits",
+    "The browser kept this page open.",
+    "console-echo",
+    "Current instruction, line ",
+    "z80debug.displayFormat",
+    "EX AF,AF' swaps only AF.",
+  ]) {
+    if (!code.includes(needle)) {
+      throw new Error(`play bundle missing ${JSON.stringify(needle)}`);
+    }
+  }
 }
