@@ -10,6 +10,8 @@ export interface AssembledProgram {
   ok: true;
   origin: number;
   image: Uint8Array;
+  /** 1-based source line for each address an instruction or data directive emitted. */
+  sourceLines: ReadonlyMap<number, number>;
 }
 
 export interface AssembleFailure {
@@ -37,12 +39,20 @@ export function assemble(source: string): AssembleResult {
 
   const errors: AssembleError[] = [];
   const image = new Uint8Array(MEMORY_SIZE);
+  const sourceLines = new Map<number, number>();
   let origin: number | undefined;
+  // Macro expansion inserts lines with no source number. Those bytes stay on
+  // the source line that inserted them. A label-only line emits nothing, so it
+  // never becomes the line for a later instruction.
+  let sourceLine: number | undefined;
 
   for (const assembled of sourceFile.assembledLines) {
     if (assembled.error !== undefined) {
       const line = (assembled.lineNumber ?? 0) + 1;
       errors.push({ line, message: assembled.error });
+    }
+    if (assembled.lineNumber !== undefined) {
+      sourceLine = assembled.lineNumber + 1;
     }
     if (assembled.binary.length > 0 && origin === undefined) {
       origin = assembled.address & 0xffff;
@@ -50,6 +60,9 @@ export function assemble(source: string): AssembleResult {
     for (let index = 0; index < assembled.binary.length; index++) {
       const address = (assembled.address + index) & 0xffff;
       image[address] = assembled.binary[index] & 0xff;
+      if (sourceLine !== undefined) {
+        sourceLines.set(address, sourceLine);
+      }
     }
   }
 
@@ -57,7 +70,7 @@ export function assemble(source: string): AssembleResult {
     return { ok: false, errors };
   }
 
-  return { ok: true, origin: origin ?? 0, image };
+  return { ok: true, origin: origin ?? 0, image, sourceLines };
 }
 
 export function preprocess(source: string): string[] {
