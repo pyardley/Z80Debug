@@ -81,6 +81,61 @@ h3 { font-size: 0.95rem; }
   font-size: 0.82rem;
 }
 
+.console-pane {
+  margin: 0.6rem 0.6rem 0;
+  background: #fbfaf5;
+  border: 1px solid #c9c3b2;
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem 0.55rem;
+}
+
+.console-ports {
+  color: #3f3a32;
+  font-size: 0.78rem;
+}
+
+.console-ports p { margin: 0.12rem 0; }
+
+.console-screen {
+  min-height: 4.6rem;
+  max-height: 8rem;
+  overflow: auto;
+  margin: 0.35rem 0;
+  padding: 0.4rem 0.5rem;
+  background: #1c241c;
+  color: #d7f5c8;
+  border-radius: 4px;
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.console-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.console-form input {
+  flex: 1;
+  min-width: 12rem;
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", Menlo, Consolas, monospace;
+  border: 1px solid #c9c3b2;
+  border-radius: 4px;
+  padding: 0.2rem 0.35rem;
+  background: #fffef9;
+}
+
+.source-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.source-hint { margin-bottom: 0.35rem; }
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(280px, 34rem) minmax(0, 1fr);

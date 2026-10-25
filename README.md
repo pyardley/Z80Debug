@@ -1,6 +1,6 @@
 # Z80Debug
 
-A single-page Z80 assembler and single-step debugger. Write Zilog assembly, assemble it into a flat 64K memory image, and step one instruction at a time. Registers, flags, and memory update as the code runs. Number format switches between hexadecimal, decimal, and binary without changing machine state.
+A single-page Z80 assembler and single-step debugger. Write Zilog assembly, assemble it into a flat 64K memory image, and step one instruction at a time. Registers, flags, memory, and the console update as the code runs. Number format switches between hexadecimal, decimal, binary, and ASCII without changing machine state.
 
 ## Run
 
@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints, usually http://localhost:5173. The editor starts with a short sample. Click **Assemble**, then **Step**.
+Open the URL Vite prints, usually http://localhost:5173. The editor starts with a short sample. Click **Assemble**, then **Step**. **Sample** reloads that program. **Console example** loads a program that prints a prompt with `OUT` and reads one character with `IN`.
 
 ```sh
 npm test
@@ -50,6 +50,22 @@ After each step, only the registers, flag bits, bank labels, and memory bytes th
 
 **Step** runs one whole instruction, not one T-state. If the CPU executes `HALT`, the status line says so and **Step** stops.
 
+## Console
+
+Ports `00H` and `01H` are a console. The same rules are written on the console panel. The port number is the low byte of the port address, which is what `IN A,(n)` and `OUT (n),A` select.
+
+| Port | `IN` | `OUT` |
+| --- | --- | --- |
+| `00H` data | Next typed character, then removed from the queue. `00H` if the queue is empty. | Appends A. |
+| `01H` status | `0FFH` when a character is waiting, otherwise `00H`. | Ignored. |
+| Any other | `0FFH` | Discarded. |
+
+Type into the console field. Each character waits in the queue until `IN A,(00H)` reads it. The panel shows how many characters are waiting.
+
+`0AH` and `0DH` start a new line. A CR+LF pair is one new line. `08H` deletes the last character on the current line. `09H` is a tab, shown as spaces to the next multiple of 8. Bytes `20H`–`7EH` are the ASCII glyph. Any other byte is a middle dot. Drawing the console does not change machine state.
+
+**Clear** and **Reset** empty the screen and the queue. **Assemble** resets the machine, so it clears the console as well. A failed assemble leaves the console alone.
+
 ## Syntax
 
 Mnemonics and the directives below are case-insensitive. A comment runs from `;` to the end of the line. A label may sit in the first column, with or without a colon (`loop:` or `loop NOP`). `NAME EQU value` and `NAME = value` define constants.
@@ -80,7 +96,7 @@ See [THIRD-PARTY.md](THIRD-PARTY.md) for versions, URLs, and licenses.
 ## Limits
 
 - The documented Z80 instruction set is supported. These cores also assemble and execute some undocumented opcodes, including `SLL`. An undefined `CB`, `DD`, `ED`, or `FD` opcode is consumed and not executed.
-- `IN` reads `FF`. `OUT` is discarded. There are no peripherals.
+- Ports other than the console (`00H` data, `01H` status) still read `FF` and discard `OUT`.
 - `HALT` stops the stepper. No interrupt is wired up to leave the halt.
 - R is this emulator's refresh counter. It increments all 8 bits on each opcode fetch. A silicon Z80 increments only the low 7 bits and leaves bit 7 alone except for `LD R,A`.
 - Register names (`A`, `BC`, `HL`, and the rest) cannot be labels.

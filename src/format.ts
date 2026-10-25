@@ -2,7 +2,7 @@ export type DisplayFormat = "hex" | "decimal" | "binary" | "ascii";
 
 export const FORMAT_STORAGE_KEY = "z80debug.displayFormat";
 
-const MIDDLE_DOT = "\u00B7";
+export const ASCII_MIDDLE_DOT = "\u00B7";
 
 const FORMATS: readonly DisplayFormat[] = ["hex", "decimal", "binary", "ascii"];
 
@@ -51,12 +51,16 @@ export function bytesPerRow(format: DisplayFormat): number {
   }
 }
 
-function formatAsciiByte(value: number): string {
+export function asciiGlyph(value: number): string {
   const byte = value & 0xff;
   if (byte >= 0x20 && byte <= 0x7e) {
     return String.fromCharCode(byte);
   }
-  return MIDDLE_DOT;
+  return ASCII_MIDDLE_DOT;
+}
+
+function formatAsciiByte(value: number): string {
+  return asciiGlyph(value);
 }
 
 export function loadFormat(storage: Pick<Storage, "getItem">): DisplayFormat {

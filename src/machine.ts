@@ -1,6 +1,7 @@
 import { hi, lo } from "z80-base";
 import { Z80, type Hal } from "z80-emulator";
 import { assemble, type AssembleError } from "./assemble";
+import { ConsoleDevice } from "./console";
 import { disassembleAt } from "./disasm";
 
 export const MEMORY_SIZE = 0x10000;
@@ -50,6 +51,7 @@ export interface MachineSnapshot {
 
 export class Machine {
   readonly memory = new Uint8Array(MEMORY_SIZE);
+  readonly console = new ConsoleDevice();
   readonly cpu: Z80;
   readonly hal: Hal;
 
@@ -82,10 +84,12 @@ export class Machine {
         machine.store(address, value);
       },
       contendMemory(): void {},
-      readPort(): number {
-        return 0xff;
+      readPort(address: number): number {
+        return machine.console.read(address);
       },
-      writePort(): void {},
+      writePort(address: number, value: number): void {
+        machine.console.write(address, value);
+      },
       contendPort(): void {},
     };
     this.cpu = new Z80(this.hal);
@@ -127,7 +131,12 @@ export class Machine {
     this.changed.clear();
     this.recording = false;
     this.recorded = [];
+    this.console.clear();
     this.refreshNext();
+  }
+
+  clearConsole(): void {
+    this.console.clear();
   }
 
   step(): void {
