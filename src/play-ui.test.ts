@@ -46,7 +46,7 @@ describe("tabletop debugger", () => {
     vi.restoreAllMocks();
     document.body.replaceChildren();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    document.querySelectorAll(".travel-token, .flying-badge").forEach((node) => node.remove());
+    document.querySelectorAll(".travel-token, .flying-badge, .flying-stack-mark").forEach((node) => node.remove());
   });
 
   it("sends an immediate on a chip and keeps the register correct", () => {
@@ -175,6 +175,37 @@ describe("tabletop debugger", () => {
     expect(event.defaultPrevented).toBe(true);
     expect(clicks.some((link) => link.download === "mine.asm")).toBe(true);
     expect(text(root, "#file-status")).toContain("Downloaded mine.asm");
+  });
+
+  it("flies a push onto the stack column and moves the pointer back on RET", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    expect(root.querySelector(".desk > .memory-pane #memory-stack")).not.toBeNull();
+    expect(root.querySelector(".toy #memory-stack")).toBeNull();
+
+    chooseExample(root, "stack");
+    click(root, "#step");
+    click(root, "#step");
+    click(root, "#step");
+
+    const top = root.querySelector("#memory-stack [data-stack-top='true']");
+    expect(top?.textContent).toContain("FEFE");
+    expect(top?.textContent).toContain("▶ SP");
+    expect(top?.textContent).toContain("Top of stack, low byte");
+    expect(top?.querySelector(".mem-byte")?.textContent).toBe("EF");
+    expect(top?.querySelector(".mem-byte")?.classList.contains("changed")).toBe(true);
+    expect(document.querySelector(".travel-token")?.textContent).toBe("BEEF");
+    expect(document.querySelector(".flying-stack-mark")?.textContent).toContain("SP");
+
+    click(root, "#motion-toggle");
+    click(root, "#step");
+    click(root, "#step");
+    expect(document.querySelector(".travel-token")).toBeNull();
+    expect(document.querySelector(".flying-stack-mark")).toBeNull();
+    expect(root.querySelector("#memory-stack [data-stack-top='true']")?.textContent).toContain("FEFE");
+    click(root, "#step");
+    expect(root.querySelector("#memory-stack [data-stack-top='true']")?.textContent).toContain("FF00");
   });
 });
 

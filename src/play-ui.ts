@@ -31,6 +31,7 @@ import {
   swapGroup,
 } from "./motion";
 import { MotionStage, type BadgeLift } from "./play-stage";
+import { paintStackPane } from "./stack";
 
 const SOURCE_LINE_HEIGHT = 20;
 const UNTITLED = "Untitled";
@@ -75,6 +76,7 @@ export function mount(root: HTMLElement): void {
   let lookAddress: number | undefined;
   let followWrite = true;
   let spotlight: number | undefined;
+  const stackWindow: { top: number | undefined } = { top: undefined };
   let motionOn = true;
   let popConsole = false;
   let savedText = "";
@@ -90,6 +92,7 @@ export function mount(root: HTMLElement): void {
   }).join("");
 
   root.innerHTML = `
+    <div class="desk">
     <div class="toy">
       <span class="screw screw-nw" aria-hidden="true"></span>
       <span class="screw screw-ne" aria-hidden="true"></span>
@@ -188,26 +191,33 @@ export function mount(root: HTMLElement): void {
           <button type="submit">Queue</button>
         </form>
       </section>
-      <section class="memory-pane">
-        <div>
-          <div class="pane-head"><h2>Memory around PC</h2></div>
-          <div id="memory-pc" class="dump"></div>
-        </div>
-        <div>
-          <div class="pane-head">
-            <h2 id="memory-focus-title">Memory around latest write</h2>
-            <form id="jump-form" class="jump">
-              <label for="jump-address">Address</label>
-              <input id="jump-address" type="text" spellcheck="false" autocomplete="off" placeholder="0C000H">
-              <button type="submit">Show</button>
-              <button type="button" id="show-write">Latest write</button>
-            </form>
-          </div>
-          <div id="writes" class="writes"></div>
-          <div id="memory-focus" class="dump"></div>
-        </div>
-      </section>
       <input id="file-input" type="file" accept=".asm,.z80,.s,.txt,text/plain" hidden>
+    </div>
+    <aside class="memory-pane" aria-label="Memory">
+      <div>
+        <div class="pane-head"><h2>Memory around PC</h2></div>
+        <div id="memory-pc" class="dump"></div>
+      </div>
+      <div>
+        <div class="pane-head">
+          <h2 id="memory-focus-title">Memory around latest write</h2>
+          <form id="jump-form" class="jump">
+            <label for="jump-address">Address</label>
+            <input id="jump-address" type="text" spellcheck="false" autocomplete="off" placeholder="0C000H">
+            <button type="submit">Show</button>
+            <button type="button" id="show-write">Latest write</button>
+          </form>
+        </div>
+        <div id="writes" class="writes"></div>
+        <div id="memory-focus" class="dump"></div>
+      </div>
+      <div>
+        <div class="pane-head"><h2>Stack</h2></div>
+        <p class="hint">The stack grows downward. The byte at SP is the low byte of the top word. The row marked SP is the top of the stack.</p>
+        <div id="stack-sp" class="stack-sp"></div>
+        <div id="memory-stack" class="dump stack-dump"></div>
+      </div>
+    </aside>
     </div>
   `;
 
@@ -232,6 +242,7 @@ export function mount(root: HTMLElement): void {
     lookAddress = undefined;
     followWrite = true;
     spotlight = undefined;
+    stackWindow.top = undefined;
     render();
   });
   required<HTMLButtonElement>(root, "#reset").addEventListener("click", () => {
@@ -240,6 +251,7 @@ export function mount(root: HTMLElement): void {
     lookAddress = undefined;
     followWrite = true;
     spotlight = undefined;
+    stackWindow.top = undefined;
     render();
   });
   required<HTMLButtonElement>(root, "#step").addEventListener("click", () => {
@@ -371,6 +383,8 @@ export function mount(root: HTMLElement): void {
     const group = swapGroup(machine.nextInstruction);
     const swap = motionOn && group !== undefined ? captureBadges(group) : undefined;
     const sourceRect = sourceBox();
+    const spBefore = machine.cpu.regs.sp & 0xffff;
+    const markFrom = root.querySelector<HTMLElement>("#memory-stack .stack-mark.current")?.getBoundingClientRect();
     const base = captureMotionBase(machine);
     const steps = machine.steps;
     machine.step();
@@ -383,6 +397,9 @@ export function mount(root: HTMLElement): void {
     popConsole = plan.type === "travel" && plan.moves.some((move) => move.pop);
     render();
     popConsole = false;
+    const spAfter = machine.cpu.regs.sp & 0xffff;
+    const markNow = root.querySelector<HTMLElement>("#memory-stack .stack-mark.current");
+    const stackMoved = ((spBefore - spAfter) & 0xffff) === 2 || ((spAfter - spBefore) & 0xffff) === 2;
     if (motionOn) {
       stage.play({
         plan,
@@ -390,6 +407,9 @@ export function mount(root: HTMLElement): void {
         banks: machine.banks(),
         sourceRect,
         swap: plan.type === "swap" ? swap : undefined,
+        stackMark: stackMoved && markFrom !== undefined && markNow !== null
+          ? { from: markFrom, live: markNow }
+          : undefined,
       });
     }
   }
@@ -404,6 +424,7 @@ export function mount(root: HTMLElement): void {
     paintSystem();
     paintBanks();
     paintMemory();
+    paintStack();
     paintErrors();
     paintSource();
     paintConsole();
@@ -592,6 +613,7 @@ export function mount(root: HTMLElement): void {
     lookAddress = undefined;
     followWrite = true;
     spotlight = undefined;
+    stackWindow.top = undefined;
     render();
   }
 
@@ -827,6 +849,20 @@ export function mount(root: HTMLElement): void {
       row.append(bit);
     }
     return row;
+  }
+
+  function paintStack(): void {
+    paintStackPane(
+      required<HTMLElement>(root, "#memory-stack"),
+      required<HTMLElement>(root, "#stack-sp"),
+      stackWindow,
+      {
+        memory: machine.memory,
+        writes: machine.writes,
+        sp: machine.cpu.regs.sp,
+      },
+      format,
+    );
   }
 
   function paintMemory(): void {

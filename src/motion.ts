@@ -6,7 +6,7 @@ export const MOTION_MS = 520;
 
 export type RegName =
   | "a" | "b" | "c" | "d" | "e" | "h" | "l" | "i" | "r"
-  | "af" | "bc" | "de" | "hl" | "sp" | "ix" | "iy";
+  | "af" | "bc" | "de" | "hl" | "sp" | "ix" | "iy" | "pc";
 
 export type Anchor =
   | { type: "reg"; name: RegName }
@@ -35,11 +35,13 @@ export interface MotionFacts {
   de: number;
   hl: number;
   sp: number;
+  pc: number;
   ix: number;
   iy: number;
   i: number;
   r: number;
   spBefore: number;
+  pcBefore: number;
   hlBefore: number;
   bcBefore: number;
   deBefore: number;
@@ -56,6 +58,7 @@ export interface MotionBase {
   de: number;
   hl: number;
   sp: number;
+  pc: number;
   ix: number;
   iy: number;
   waiting: number;
@@ -65,7 +68,7 @@ export interface MotionBase {
 const NONE: MotionPlan = { type: "none" };
 
 const REG_NAMES = new Set<string>([
-  "a", "b", "c", "d", "e", "h", "l", "i", "r", "af", "bc", "de", "hl", "sp", "ix", "iy",
+  "a", "b", "c", "d", "e", "h", "l", "i", "r", "af", "bc", "de", "hl", "sp", "ix", "iy", "pc",
 ]);
 
 const BYTE_REGS = new Set<RegName>(["a", "b", "c", "d", "e", "h", "l", "i", "r"]);
@@ -98,6 +101,7 @@ export function captureMotionBase(machine: Machine): MotionBase {
     de: exx.de & 0xffff,
     hl: exx.hl & 0xffff,
     sp: machine.cpu.regs.sp & 0xffff,
+    pc: machine.cpu.regs.pc & 0xffff,
     ix: machine.cpu.regs.ix & 0xffff,
     iy: machine.cpu.regs.iy & 0xffff,
     waiting: machine.console.waiting,
@@ -119,11 +123,13 @@ export function planAfterStep(base: MotionBase, machine: Machine): MotionPlan {
     de: exx.de & 0xffff,
     hl: exx.hl & 0xffff,
     sp: machine.cpu.regs.sp & 0xffff,
+    pc: machine.cpu.regs.pc & 0xffff,
     ix: machine.cpu.regs.ix & 0xffff,
     iy: machine.cpu.regs.iy & 0xffff,
     i: machine.cpu.regs.i & 0xff,
     r: machine.refreshRegister(),
     spBefore: base.sp,
+    pcBefore: base.pc,
     hlBefore: base.hl,
     bcBefore: base.bc,
     deBefore: base.de,
@@ -215,6 +221,19 @@ export function planMotion(facts: MotionFacts): MotionPlan {
     }
     const address = facts.spBefore & 0xffff;
     return { type: "travel", moves: [carry({ type: "mem", address }, reg(name), valueOf(name, facts), widthOf(name))] };
+  }
+
+  if (/^CALL\b/.test(mnemonic) && stackDelta(facts) === -2) {
+    const address = (facts.spBefore - 2) & 0xffff;
+    const value = writtenWord(facts.writes, address);
+    if (value !== undefined) {
+      return { type: "travel", moves: [carry(reg("pc"), { type: "mem", address }, value, 16)] };
+    }
+  }
+
+  if (/^RET\b/.test(mnemonic) && stackDelta(facts) === 2) {
+    const address = facts.spBefore & 0xffff;
+    return { type: "travel", moves: [carry({ type: "mem", address }, reg("pc"), facts.pc, 16)] };
   }
 
   if (mnemonic === "LDI" || mnemonic === "LDD" || mnemonic === "LDIR" || mnemonic === "LDDR") {
@@ -365,7 +384,30 @@ function valueOf(name: RegName, facts: MotionFacts): number {
       return facts.ix;
     case "iy":
       return facts.iy;
+    case "pc":
+      return facts.pc;
   }
+}
+
+function stackDelta(facts: MotionFacts): number {
+  const dropped = (facts.spBefore - facts.sp) & 0xffff;
+  if (dropped === 2) {
+    return -2;
+  }
+  const lifted = (facts.sp - facts.spBefore) & 0xffff;
+  if (lifted === 2) {
+    return 2;
+  }
+  return 0;
+}
+
+function writtenWord(writes: readonly MemoryWrite[], address: number): number | undefined {
+  const low = writes.find((write) => write.address === address);
+  const high = writes.find((write) => write.address === ((address + 1) & 0xffff));
+  if (low === undefined || high === undefined) {
+    return undefined;
+  }
+  return (low.value | (high.value << 8)) & 0xffff;
 }
 
 function carry(from: Anchor, to: Anchor, value: number, width: 8 | 16, pop = false): Travel {

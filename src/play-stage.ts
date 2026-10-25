@@ -63,6 +63,7 @@ export class MotionStage {
     banks: Banks;
     sourceRect?: Box;
     swap?: BadgeLift;
+    stackMark?: { from: Box; live: HTMLElement };
   }): void {
     const generation = this.generation;
     const safety = window.setTimeout(() => {
@@ -74,12 +75,13 @@ export class MotionStage {
 
     if (input.plan.type === "swap" && input.swap !== undefined) {
       this.flyBadges(input.swap);
-      return;
-    }
-    if (input.plan.type === "travel") {
+    } else if (input.plan.type === "travel") {
       for (const move of input.plan.moves) {
         this.flyToken(move, input.format, input.banks, input.sourceRect);
       }
+    }
+    if (input.stackMark !== undefined) {
+      this.slideStack(input.stackMark.from, input.stackMark.live);
     }
   }
 
@@ -125,6 +127,12 @@ export class MotionStage {
       return;
     }
     this.dim(move.to, banks);
+    if (move.to.type === "mem" && move.width === 16) {
+      this.dim({ type: "mem", address: (move.to.address + 1) & 0xffff }, banks);
+    }
+    if (move.from.type === "reg" && move.from.name === "pc") {
+      this.dim(move.from, banks);
+    }
     if (move.pop) {
       const pop = this.root.querySelector<HTMLElement>("#console-pop");
       if (pop !== null) {
@@ -192,11 +200,28 @@ export class MotionStage {
     }
     if (anchor.type === "mem") {
       const selector = `[data-addr="${anchor.address}"]`;
-      return this.root.querySelector<HTMLElement>(`#memory-focus ${selector}`)
+      return this.root.querySelector<HTMLElement>(`#memory-stack ${selector}`)
+        ?? this.root.querySelector<HTMLElement>(`#memory-focus ${selector}`)
         ?? this.root.querySelector<HTMLElement>(`#memory-pc ${selector}`)
+        ?? this.root.querySelector<HTMLElement>("#memory-stack")
         ?? this.root.querySelector<HTMLElement>("#memory-focus");
     }
     return null;
+  }
+
+  private slideStack(from: Box, live: HTMLElement): void {
+    const to = boxOf(live);
+    if (to === undefined) {
+      return;
+    }
+    live.style.visibility = "hidden";
+    this.hidden.push(live);
+    const clone = live.cloneNode(true) as HTMLElement;
+    clone.classList.add("flying-stack-mark");
+    clone.style.visibility = "visible";
+    this.root.ownerDocument.body.append(clone);
+    this.nodes.push(clone);
+    this.slide(clone, from, to, from.top <= to.top ? 16 : -16);
   }
 
   private slide(element: HTMLElement, from: Box, to: Box, lift: number): void {
@@ -233,7 +258,7 @@ export class MotionStage {
 }
 
 function regKey(name: RegName, banks: Banks): string | undefined {
-  if (name === "sp" || name === "ix" || name === "iy" || name === "i" || name === "r") {
+  if (name === "sp" || name === "pc" || name === "ix" || name === "iy" || name === "i" || name === "r") {
     return name;
   }
   if (AF_REGS.has(name)) {

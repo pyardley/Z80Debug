@@ -86,6 +86,37 @@ describe("example programs", () => {
     expect(after.get("SUB A,0X01")).toBe(0x93);
   });
 
+  it("pushes a word, calls, returns, and pops it back", () => {
+    const machine = new Machine();
+    expect(machine.assemble(sourceOf("stack"))).toBe(true);
+    const source = sourceOf("stack");
+    expect(source).toMatch(/grows downward/i);
+    expect(source).toMatch(/low byte/i);
+
+    stepUntil(machine, "PUSH HL");
+    expect(machine.cpu.regs.sp).toBe(0xfefe);
+    expect(machine.memory[0xfefe]).toBe(0xef);
+    expect(machine.memory[0xfeff]).toBe(0xbe);
+    expect(machine.writes.map((write) => write.address).sort((a, b) => a - b)).toEqual([0xfefe, 0xfeff]);
+
+    stepUntil(machine, "CALL 0X010C");
+    expect(machine.cpu.regs.sp).toBe(0xfefc);
+    expect(machine.cpu.regs.pc).toBe(0x010c);
+    expect(machine.memory[0xfefc]).toBe(0x0a);
+    expect(machine.memory[0xfefd]).toBe(0x01);
+    expect(machine.memory[0xfefe]).toBe(0xef);
+
+    stepUntil(machine, "RET");
+    expect(machine.cpu.regs.sp).toBe(0xfefe);
+    expect(machine.cpu.regs.pc).toBe(0x010a);
+
+    stepUntil(machine, "POP HL");
+    expect(machine.cpu.regs.sp).toBe(0xff00);
+    expect(machine.cpu.regs.hl).toBe(0xbeef);
+    expect(machine.memory[0xfefe]).toBe(0xef);
+    expect(machine.memory[0xfeff]).toBe(0xbe);
+  });
+
   it("stores 11H over a zero byte and then two neighbours", () => {
     const machine = runUntilHalt("memory");
     expect(machine.memory[0xc000]).toBe(0x11);
