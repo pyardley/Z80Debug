@@ -24,9 +24,25 @@ const FLAG_BITS: { key: string; label: string; mask: number }[] = [
   { key: "c", label: "C", mask: 0x01 },
 ];
 
+function readDisplayFormat(): DisplayFormat {
+  try {
+    return loadFormat(window.localStorage);
+  } catch {
+    return "hex";
+  }
+}
+
+function writeDisplayFormat(format: DisplayFormat): void {
+  try {
+    saveFormat(window.localStorage, format);
+  } catch {
+    // Safari throws when a file:// page touches localStorage. Keep drawing.
+  }
+}
+
 export function mount(root: HTMLElement): void {
   const machine = new Machine();
-  let format = loadFormat(window.localStorage);
+  let format = readDisplayFormat();
   let lookAddress: number | undefined;
   let followWrite = true;
 
@@ -168,7 +184,7 @@ export function mount(root: HTMLElement): void {
   for (const name of formatNames()) {
     required<HTMLButtonElement>(root, `#format-${name}`).addEventListener("click", () => {
       format = name;
-      saveFormat(window.localStorage, format);
+      writeDisplayFormat(format);
       render();
     });
   }

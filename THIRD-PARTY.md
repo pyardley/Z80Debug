@@ -32,3 +32,4 @@ These tools build and test the page. They are not part of the emulator.
 | Vitest | MIT | https://github.com/vitest-dev/vitest |
 | TypeScript | Apache-2.0 | https://github.com/microsoft/TypeScript |
 | happy-dom | MIT | https://github.com/capricorn86/happy-dom |
+| esbuild | MIT | https://github.com/evanw/esbuild |

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FORMAT_STORAGE_KEY } from "./format";
 import { CONSOLE_SOURCE, SAMPLE_SOURCE } from "./sample";
 import { mount } from "./ui";
@@ -51,6 +51,53 @@ describe("format control", () => {
     const glyphs = Array.from(root.querySelectorAll("#memory-pc .mem-byte"), (cell) => cell.textContent);
     expect(glyphs).toContain("1");
     expect(glyphs).toContain("<");
+  });
+});
+
+describe("storage failure", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.replaceChildren();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("draws the page in hex when localStorage throws", () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("The operation is insecure.");
+    });
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+
+    expect(root.querySelector("h1")?.textContent).toBe("Z80Debug");
+    expect(root.querySelector("#editor")).toBeInstanceOf(HTMLTextAreaElement);
+    expect(root.querySelector("#console-output")).not.toBeNull();
+    expect(root.querySelector("#format-hex")?.getAttribute("aria-checked")).toBe("true");
+    expect(root.querySelector("#format-hex")?.classList.contains("selected")).toBe(true);
+
+    click(root, "#format-ascii");
+    expect(root.querySelector("#format-ascii")?.getAttribute("aria-checked")).toBe("true");
+    click(root, "#assemble");
+    const status = root.querySelector("#status")?.textContent ?? "";
+    expect(status).toContain("Values shown in ASCII");
+    expect(status).toContain("Steps: 0");
+  });
+
+  it("still draws when saving the format throws", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("The operation is insecure.");
+    });
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    expect(root.querySelector("#format-hex")?.getAttribute("aria-checked")).toBe("true");
+
+    click(root, "#format-decimal");
+    expect(root.querySelector("#format-decimal")?.getAttribute("aria-checked")).toBe("true");
+    expect(root.querySelector("#editor")).toBeInstanceOf(HTMLTextAreaElement);
   });
 });
 
