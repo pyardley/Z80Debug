@@ -2,7 +2,16 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { FORMAT_STORAGE_KEY } from "./format";
+import { CONSOLE_SOURCE, SAMPLE_SOURCE } from "./sample";
 import { mount } from "./ui";
+
+function click(root: ParentNode, selector: string): void {
+  const element = root.querySelector(selector);
+  if (!(element instanceof HTMLElement)) {
+    throw new Error(`missing ${selector}`);
+  }
+  element.click();
+}
 
 describe("format control", () => {
   beforeEach(() => {
@@ -42,5 +51,106 @@ describe("format control", () => {
     const glyphs = Array.from(root.querySelectorAll("#memory-pc .mem-byte"), (cell) => cell.textContent);
     expect(glyphs).toContain("1");
     expect(glyphs).toContain("<");
+  });
+});
+
+describe("console panel", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.replaceChildren();
+  });
+
+  it("documents the ports and loads either sample", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const ports = root.querySelector(".console-ports")?.textContent ?? "";
+    expect(ports).toContain("00H");
+    expect(ports).toContain("OUT (00H),A");
+    expect(ports).toContain("IN A,(00H)");
+    expect(ports).toContain("01H");
+    expect(ports).toContain("0FFH");
+    expect(ports).toContain("CR+LF");
+
+    click(root, "#load-console");
+    const editor = root.querySelector("#editor");
+    if (!(editor instanceof HTMLTextAreaElement)) {
+      throw new Error("missing editor");
+    }
+    expect(editor.value).toBe(CONSOLE_SOURCE);
+    expect(root.querySelector("#status")?.textContent).toContain("Ready");
+    expect(root.querySelector("#console-output")?.textContent).toBe("");
+
+    click(root, "#load-sample");
+    expect(editor.value).toBe(SAMPLE_SOURCE);
+    expect(root.querySelector("#next-instruction")?.textContent).toContain("LD SP,0XFF00");
+  });
+
+  it("shows each OUT immediately, then reads one queued character", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    click(root, "#load-console");
+
+    click(root, "#step");
+    expect(root.querySelector("#console-output")?.textContent).toBe("");
+    click(root, "#step");
+    expect(root.querySelector("#console-output")?.textContent).toBe("H");
+    for (let count = 0; count < 6; count += 1) {
+      click(root, "#step");
+    }
+    expect(root.querySelector("#console-output")?.textContent).toBe("Hi? ");
+    expect(root.querySelector("#console-waiting")?.textContent).toBe("Waiting: 0");
+    expect(root.querySelector("#next-instruction")?.textContent).toContain("IN A,(0X00)");
+
+    const input = root.querySelector("#console-input");
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("missing console input");
+    }
+    input.value = "Q";
+    click(root, "#console-form button");
+    expect(root.querySelector("#console-waiting")?.textContent).toBe("Waiting: 1 (Q)");
+    expect(input.value).toBe("");
+
+    click(root, "#step");
+    expect(root.querySelector("[data-key='main.a']")?.textContent).toBe("51");
+    expect(root.querySelector("#console-waiting")?.textContent).toBe("Waiting: 0");
+    expect(root.querySelector("#console-output")?.textContent).toBe("Hi? ");
+
+    click(root, "#format-ascii");
+    expect(root.querySelector("[data-key='main.a']")?.textContent).toBe("Q");
+    expect(root.querySelector("#console-output")?.textContent).toBe("Hi? ");
+  });
+
+  it("Clear and Reset empty the screen and the queue", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    click(root, "#load-console");
+    click(root, "#step");
+    click(root, "#step");
+    const input = root.querySelector("#console-input");
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("missing console input");
+    }
+    input.value = "Q";
+    click(root, "#console-form button");
+    expect(root.querySelector("#console-output")?.textContent).toBe("H");
+    expect(root.querySelector("#console-waiting")?.textContent).toBe("Waiting: 1 (Q)");
+    const steps = root.querySelector("#status")?.textContent;
+
+    click(root, "#console-clear");
+    expect(root.querySelector("#console-output")?.textContent).toBe("");
+    expect(root.querySelector("#console-waiting")?.textContent).toBe("Waiting: 0");
+    expect(root.querySelector("#status")?.textContent).toBe(steps);
+    expect(root.querySelector("[data-key='main.a']")?.textContent).toBe("48");
+
+    input.value = "Z";
+    click(root, "#console-form button");
+    click(root, "#step");
+    click(root, "#reset");
+    expect(root.querySelector("#console-output")?.textContent).toBe("");
+    expect(root.querySelector("#console-waiting")?.textContent).toBe("Waiting: 0");
+    expect(root.querySelector("#status")?.textContent).toContain("Steps: 0");
   });
 });

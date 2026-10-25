@@ -11,7 +11,7 @@ import {
   type DisplayFormat,
 } from "./format";
 import { Machine, type RegisterBank } from "./machine";
-import { SAMPLE_SOURCE } from "./sample";
+import { CONSOLE_SOURCE, SAMPLE_SOURCE } from "./sample";
 
 const SOURCE_LINE_HEIGHT = 20;
 
@@ -53,12 +53,36 @@ export function mount(root: HTMLElement): void {
       EX AF,AF' swaps only AF. EXX swaps BC, DE, and HL together and does not touch AF.
       Active is the bank instructions read and write. Shadow is the other bank.
     </p>
+    <section class="console-pane" aria-label="Console">
+      <div class="pane-head">
+        <h2>Console</h2>
+        <div class="controls">
+          <p id="console-waiting" class="hint" role="status">Waiting: 0</p>
+          <button type="button" id="console-clear">Clear</button>
+        </div>
+      </div>
+      <div class="console-ports">
+        <p><strong>00H data.</strong> OUT (00H),A appends A to the console. IN A,(00H) returns the next character you typed and removes it from the queue. If the queue is empty, IN returns 00H.</p>
+        <p><strong>01H status.</strong> IN A,(01H) returns 0FFH when at least one character is queued, and 00H when the queue is empty. OUT to 01H is ignored.</p>
+        <p>Every other port stays as it was: IN returns 0FFH and OUT is discarded. 0AH and 0DH start a new line, and a CR+LF pair is one new line. 08H deletes the last character on the current line. 09H is a tab to the next multiple of 8. 20H–7EH are the ASCII glyph. Any other byte is a middle dot.</p>
+      </div>
+      <pre id="console-output" class="console-screen" role="log" aria-live="polite"></pre>
+      <form id="console-form" class="console-form">
+        <label for="console-input">Type</label>
+        <input id="console-input" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="Type a character, then Queue">
+        <button type="submit">Queue</button>
+      </form>
+    </section>
     <div class="workspace">
       <section class="editor-pane">
         <div class="pane-head">
           <h2>Source</h2>
-          <span class="hint">Zilog mnemonics, case-insensitive. Comments start with ;</span>
+          <span class="source-actions">
+            <button type="button" id="load-sample">Sample</button>
+            <button type="button" id="load-console">Console example</button>
+          </span>
         </div>
+        <p class="hint source-hint">Zilog mnemonics, case-insensitive. Comments start with ;</p>
         <div class="source-scroll" id="source-scroll">
           <div class="source-gutter-clip">
             <div class="source-gutter" id="source-gutter"></div>
@@ -126,6 +150,20 @@ export function mount(root: HTMLElement): void {
     machine.step();
     render();
   });
+  required<HTMLButtonElement>(root, "#load-sample").addEventListener("click", () => {
+    loadSource(SAMPLE_SOURCE);
+  });
+  required<HTMLButtonElement>(root, "#load-console").addEventListener("click", () => {
+    loadSource(CONSOLE_SOURCE);
+  });
+  required<HTMLButtonElement>(root, "#console-clear").addEventListener("click", () => {
+    machine.clearConsole();
+    render();
+  });
+  required<HTMLFormElement>(root, "#console-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    queueTyped();
+  });
 
   for (const name of formatNames()) {
     required<HTMLButtonElement>(root, `#format-${name}`).addEventListener("click", () => {
@@ -166,8 +204,36 @@ export function mount(root: HTMLElement): void {
     paintMemory();
     paintErrors();
     paintSource();
+    paintConsole();
     markChanged(root, machine.changed);
     required<HTMLButtonElement>(root, "#step").disabled = !machine.ready || machine.halted;
+  }
+
+  function loadSource(source: string): void {
+    editor.value = source;
+    machine.assemble(source);
+    lookAddress = undefined;
+    followWrite = true;
+    render();
+  }
+
+  function queueTyped(): void {
+    const input = required<HTMLInputElement>(root, "#console-input");
+    if (input.value === "") {
+      return;
+    }
+    machine.console.enqueueText(input.value);
+    input.value = "";
+    render();
+  }
+
+  function paintConsole(): void {
+    required<HTMLElement>(root, "#console-output").textContent = machine.console.text();
+    const waiting = machine.console.waiting;
+    const queued = machine.console.queuedGlyphs();
+    required<HTMLElement>(root, "#console-waiting").textContent = queued === ""
+      ? `Waiting: ${waiting}`
+      : `Waiting: ${waiting} (${queued})`;
   }
 
   function paintFormat(): void {

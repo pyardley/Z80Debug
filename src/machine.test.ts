@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assemble } from "./assemble";
 import { disassembleAt } from "./disasm";
 import {
+  ASCII_MIDDLE_DOT,
   bytesPerRow,
   formatByte,
   formatNames,
@@ -335,6 +336,155 @@ describe("display format", () => {
     expect(stored.get(FORMAT_STORAGE_KEY)).toBe("ascii");
     expect(loadFormat(storage)).toBe("ascii");
     expect(machine.snapshot()).toEqual(before);
+  });
+});
+
+function runProgram(source: string, steps: number): Machine {
+  const machine = new Machine();
+  expect(machine.assemble(source)).toBe(true);
+  for (let count = 0; count < steps; count += 1) {
+    machine.step();
+  }
+  return machine;
+}
+
+describe("console", () => {
+  it("OUT 00H appends", () => {
+    const machine = runProgram(`
+      LD A, 41H
+      OUT (00H), A
+    `, 2);
+    expect([...machine.console.bytes]).toEqual([0x41]);
+    expect(machine.console.text()).toBe("A");
+  });
+
+  it("IN 00H returns the queued byte and then removes it", () => {
+    const machine = runProgram(`
+      LD A, 20H
+      IN A, (00H)
+    `, 1);
+    machine.console.enqueue(0x51);
+    expect(machine.console.waiting).toBe(1);
+    machine.step();
+    expect(machine.cpu.regs.a).toBe(0x51);
+    expect(machine.console.waiting).toBe(0);
+  });
+
+  it("IN 00H on an empty queue returns 00H", () => {
+    const machine = runProgram(`
+      LD A, 01H
+      IN A, (00H)
+    `, 2);
+    expect(machine.cpu.regs.a).toBe(0x00);
+    expect(machine.console.waiting).toBe(0);
+  });
+
+  it("IN 01H is 0FFH when a byte is waiting and 00H when not", () => {
+    const machine = runProgram(`
+      IN A, (01H)
+      IN A, (01H)
+      IN A, (00H)
+      IN A, (01H)
+    `, 1);
+    expect(machine.cpu.regs.a).toBe(0x00);
+    machine.console.enqueue(0x51);
+    machine.step();
+    expect(machine.cpu.regs.a).toBe(0xff);
+    expect(machine.console.waiting).toBe(1);
+    machine.step();
+    expect(machine.cpu.regs.a).toBe(0x51);
+    expect(machine.console.waiting).toBe(0);
+    machine.step();
+    expect(machine.cpu.regs.a).toBe(0x00);
+  });
+
+  it("OUT 01H does not print", () => {
+    const machine = runProgram(`
+      LD A, 41H
+      OUT (01H), A
+    `, 2);
+    expect([...machine.console.bytes]).toEqual([]);
+    expect(machine.console.text()).toBe("");
+    expect(machine.cpu.regs.a).toBe(0x41);
+  });
+
+  it("IN and OUT on another port are unchanged", () => {
+    const machine = runProgram(`
+      LD A, 41H
+      OUT (00H), A
+      OUT (02H), A
+      IN A, (02H)
+      IN A, (00H)
+    `, 0);
+    machine.console.enqueue(0x52);
+    machine.step();
+    machine.step();
+    expect([...machine.console.bytes]).toEqual([0x41]);
+    machine.step();
+    expect([...machine.console.bytes]).toEqual([0x41]);
+    expect(machine.console.text()).toBe("A");
+    expect(machine.console.waiting).toBe(1);
+    machine.step();
+    expect(machine.cpu.regs.a).toBe(0xff);
+    expect(machine.console.waiting).toBe(1);
+    expect([...machine.console.bytes]).toEqual([0x41]);
+    machine.step();
+    expect(machine.cpu.regs.a).toBe(0x52);
+    expect(machine.console.waiting).toBe(0);
+  });
+
+  it("treats CR+LF as one newline", () => {
+    const machine = runProgram(`
+      LD A, 41H
+      OUT (00H), A
+      LD A, 0DH
+      OUT (00H), A
+      LD A, 0AH
+      OUT (00H), A
+      LD A, 42H
+      OUT (00H), A
+    `, 8);
+    expect([...machine.console.bytes]).toEqual([0x41, 0x0d, 0x0a, 0x42]);
+    expect(machine.console.text()).toBe("A\nB");
+  });
+
+  it("Reset empties the console and the queue", () => {
+    const machine = runProgram(`
+      LD A, 41H
+      OUT (00H), A
+    `, 2);
+    machine.console.enqueue(0x51);
+    machine.reset();
+    expect(machine.console.text()).toBe("");
+    expect([...machine.console.bytes]).toEqual([]);
+    expect(machine.console.waiting).toBe(0);
+    expect(machine.cpu.regs.a).toBe(0);
+    expect(machine.steps).toBe(0);
+  });
+
+  it("draws tabs, backspace, and other bytes without changing machine state", () => {
+    const machine = runProgram(`
+      LD A, 41H
+      OUT (00H), A
+      LD A, 09H
+      OUT (00H), A
+      LD A, 42H
+      OUT (00H), A
+      LD A, 08H
+      OUT (00H), A
+      LD A, 07H
+      OUT (00H), A
+    `, 10);
+    machine.console.enqueue(0x51);
+    const before = machine.snapshot();
+    const waiting = machine.console.waiting;
+    expect(machine.console.text()).toBe(`A${" ".repeat(7)}${ASCII_MIDDLE_DOT}`);
+    machine.console.write(0x4100, 0x0a);
+    machine.console.write(0x0000, 0x08);
+    machine.console.write(0, 0x43);
+    expect(machine.console.text()).toBe(`A${" ".repeat(7)}${ASCII_MIDDLE_DOT}\nC`);
+    expect(machine.snapshot()).toEqual(before);
+    expect(machine.console.waiting).toBe(waiting);
   });
 });
 
