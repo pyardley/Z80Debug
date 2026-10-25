@@ -1,11 +1,13 @@
-export type DisplayFormat = "hex" | "decimal" | "binary";
+export type DisplayFormat = "hex" | "decimal" | "binary" | "ascii";
 
 export const FORMAT_STORAGE_KEY = "z80debug.displayFormat";
 
-const FORMATS: readonly DisplayFormat[] = ["hex", "decimal", "binary"];
+const MIDDLE_DOT = "\u00B7";
+
+const FORMATS: readonly DisplayFormat[] = ["hex", "decimal", "binary", "ascii"];
 
 export function isDisplayFormat(value: string | null): value is DisplayFormat {
-  return value === "hex" || value === "decimal" || value === "binary";
+  return value === "hex" || value === "decimal" || value === "binary" || value === "ascii";
 }
 
 export function formatByte(value: number, format: DisplayFormat): string {
@@ -17,6 +19,8 @@ export function formatByte(value: number, format: DisplayFormat): string {
       return byte.toString(10).padStart(3, " ");
     case "binary":
       return byte.toString(2).padStart(8, "0");
+    case "ascii":
+      return formatAsciiByte(byte);
   }
 }
 
@@ -29,6 +33,8 @@ export function formatWord(value: number, format: DisplayFormat): string {
       return word.toString(10).padStart(5, " ");
     case "binary":
       return word.toString(2).padStart(16, "0");
+    case "ascii":
+      return formatAsciiByte(word >> 8) + formatAsciiByte(word);
   }
 }
 
@@ -40,7 +46,17 @@ export function bytesPerRow(format: DisplayFormat): number {
       return 8;
     case "binary":
       return 4;
+    case "ascii":
+      return 16;
   }
+}
+
+function formatAsciiByte(value: number): string {
+  const byte = value & 0xff;
+  if (byte >= 0x20 && byte <= 0x7e) {
+    return String.fromCharCode(byte);
+  }
+  return MIDDLE_DOT;
 }
 
 export function loadFormat(storage: Pick<Storage, "getItem">): DisplayFormat {

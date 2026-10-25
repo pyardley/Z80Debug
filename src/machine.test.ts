@@ -4,6 +4,7 @@ import { disassembleAt } from "./disasm";
 import {
   bytesPerRow,
   formatByte,
+  formatNames,
   formatWord,
   FORMAT_STORAGE_KEY,
   loadFormat,
@@ -232,10 +233,19 @@ describe("display format", () => {
     expect(formatWord(0x1234, "decimal")).toBe(" 4660");
     expect(formatWord(0x1234, "binary")).toBe("0001001000110100");
     expect(formatWord(0, "binary")).toBe("0000000000000000");
+    expect(formatByte(0x41, "ascii")).toBe("A");
+    expect(formatByte(0x00, "ascii")).toBe("\u00B7");
+    expect(formatByte(0x7f, "ascii")).toBe("\u00B7");
+    expect(formatByte(0x20, "ascii")).toBe(" ");
+    expect(formatByte(0x7e, "ascii")).toBe("~");
+    expect(formatWord(0x4142, "ascii")).toBe("AB");
+    expect(formatWord(0x0100, "ascii")).toBe("\u00B7\u00B7");
     expect(bytesPerRow("hex")).toBe(16);
     expect(bytesPerRow("decimal")).toBe(8);
     expect(bytesPerRow("binary")).toBe(4);
-    for (const format of ["hex", "decimal", "binary"] as const) {
+    expect(bytesPerRow("ascii")).toBe(16);
+    expect(formatNames()).toEqual(["hex", "decimal", "binary", "ascii"]);
+    for (const format of ["hex", "decimal", "binary", "ascii"] as const) {
       formatByte(machine.cpu.regs.a, format);
       formatWord(machine.cpu.regs.bc, format);
       formatWord(machine.cpu.regs.pc, format);
@@ -260,6 +270,9 @@ describe("display format", () => {
     saveFormat(storage, "binary");
     expect(stored.get(FORMAT_STORAGE_KEY)).toBe("binary");
     expect(loadFormat(storage)).toBe("binary");
+    saveFormat(storage, "ascii");
+    expect(stored.get(FORMAT_STORAGE_KEY)).toBe("ascii");
+    expect(loadFormat(storage)).toBe("ascii");
     expect(machine.snapshot()).toEqual(before);
   });
 });
