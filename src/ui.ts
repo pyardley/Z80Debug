@@ -10,10 +10,26 @@ import {
   saveFormat,
   type DisplayFormat,
 } from "./format";
+import { exampleById, EXAMPLES } from "./examples";
+import {
+  canOpenWithPicker,
+  canSaveWithPicker,
+  downloadText,
+  fileFailure,
+  isAbortError,
+  isSecurityError,
+  openWithPicker,
+  readHandle,
+  saveWithPicker,
+  writeHandle,
+} from "./files";
 import { Machine, type RegisterBank } from "./machine";
-import { CONSOLE_SOURCE, SAMPLE_SOURCE } from "./sample";
 
 const SOURCE_LINE_HEIGHT = 20;
+
+const UNTITLED = "Untitled";
+
+let detachChrome: (() => void) | undefined;
 
 const FLAG_BITS: { key: string; label: string; mask: number }[] = [
   { key: "s", label: "S", mask: 0x80 },
@@ -46,8 +62,24 @@ export function mount(root: HTMLElement): void {
   let lookAddress: number | undefined;
   let followWrite = true;
 
+  const exampleOptions = EXAMPLES.map((example) => {
+    const selected = example.id === "sample" ? " selected" : "";
+    return `<option value="${example.id}"${selected}>${example.label}</option>`;
+  }).join("");
+
   root.innerHTML = `
     <header class="toolbar">
+      <div class="menu" id="file-menu-root">
+        <button type="button" id="file-menu-button" aria-haspopup="menu" aria-expanded="false" aria-controls="file-menu">File</button>
+        <div id="file-menu" class="menu-panel" role="menu" hidden>
+          <button type="button" role="menuitem" id="file-new">New</button>
+          <button type="button" role="menuitem" id="file-open" aria-keyshortcuts="Control+O Meta+O">Open… <span class="shortcut">Ctrl+O</span></button>
+          <button type="button" role="menuitem" id="file-save" aria-keyshortcuts="Control+S Meta+S">Save <span class="shortcut">Ctrl+S</span></button>
+          <button type="button" role="menuitem" id="file-save-as" aria-keyshortcuts="Control+Shift+S Meta+Shift+S">Save As… <span class="shortcut">Ctrl+Shift+S</span></button>
+          <div class="menu-separator" role="separator"></div>
+          <button type="button" role="menuitem" id="file-quit">Quit</button>
+        </div>
+      </div>
       <div class="title-block">
         <h1>Z80Debug</h1>
         <p>Assembler and single-step debugger</p>
@@ -92,12 +124,20 @@ export function mount(root: HTMLElement): void {
     <div class="workspace">
       <section class="editor-pane">
         <div class="pane-head">
-          <h2>Source</h2>
+          <div class="source-title">
+            <h2>Source</h2>
+            <p id="loaded-name" class="loaded-name">sample.asm</p>
+          </div>
           <span class="source-actions">
-            <button type="button" id="load-sample">Sample</button>
-            <button type="button" id="load-console">Console example</button>
+            <label class="example-label" for="examples">Examples</label>
+            <select id="examples">
+              <option value="">Examples</option>
+              ${exampleOptions}
+            </select>
+            <button type="button" id="load-example">Load</button>
           </span>
         </div>
+        <p id="file-status" class="file-status" role="status"></p>
         <p class="hint source-hint">Zilog mnemonics, case-insensitive. Comments start with ;</p>
         <div class="source-scroll" id="source-scroll">
           <div class="source-gutter-clip">
@@ -137,10 +177,17 @@ export function mount(root: HTMLElement): void {
         <div id="memory-focus" class="dump"></div>
       </div>
     </section>
+    <input id="file-input" type="file" accept=".asm,.z80,.s,.txt,text/plain" hidden>
   `;
 
   const editor = required<HTMLTextAreaElement>(root, "#editor");
-  editor.value = SAMPLE_SOURCE;
+  const starting = exampleById("sample");
+  editor.value = starting?.source ?? "";
+  let savedText = editor.value;
+  let loadedName = starting?.filename ?? UNTITLED;
+  let exampleId = starting?.id ?? "";
+  let fileHandle: FileSystemFileHandle | undefined;
+  let fileBusy = false;
   let markedLine: number | undefined;
 
   editor.addEventListener("scroll", () => {
@@ -148,6 +195,7 @@ export function mount(root: HTMLElement): void {
   });
   editor.addEventListener("input", () => {
     paintSource();
+    paintDocument();
   });
 
   required<HTMLButtonElement>(root, "#assemble").addEventListener("click", () => {
@@ -166,11 +214,41 @@ export function mount(root: HTMLElement): void {
     machine.step();
     render();
   });
-  required<HTMLButtonElement>(root, "#load-sample").addEventListener("click", () => {
-    loadSource(SAMPLE_SOURCE);
+  required<HTMLButtonElement>(root, "#file-menu-button").addEventListener("click", () => {
+    toggleMenu();
   });
-  required<HTMLButtonElement>(root, "#load-console").addEventListener("click", () => {
-    loadSource(CONSOLE_SOURCE);
+  required<HTMLButtonElement>(root, "#file-new").addEventListener("click", () => {
+    newFile();
+  });
+  required<HTMLButtonElement>(root, "#file-open").addEventListener("click", () => {
+    void openFile();
+  });
+  required<HTMLButtonElement>(root, "#file-save").addEventListener("click", () => {
+    void saveFile();
+  });
+  required<HTMLButtonElement>(root, "#file-save-as").addEventListener("click", () => {
+    void saveFileAs();
+  });
+  required<HTMLButtonElement>(root, "#file-quit").addEventListener("click", () => {
+    quit();
+  });
+  required<HTMLInputElement>(root, "#file-input").addEventListener("change", () => {
+    void openedFromInput();
+  });
+  required<HTMLSelectElement>(root, "#examples").addEventListener("change", () => {
+    const id = required<HTMLSelectElement>(root, "#examples").value;
+    if (id === "") {
+      paintDocument();
+      return;
+    }
+    loadExample(id);
+  });
+  required<HTMLButtonElement>(root, "#load-example").addEventListener("click", () => {
+    const id = required<HTMLSelectElement>(root, "#examples").value;
+    if (id === "") {
+      return;
+    }
+    loadExample(id);
   });
   required<HTMLButtonElement>(root, "#console-clear").addEventListener("click", () => {
     machine.clearConsole();
@@ -208,6 +286,34 @@ export function mount(root: HTMLElement): void {
     render();
   });
 
+  bindChrome(
+    (event) => {
+      if (event.key === "Escape") {
+        closeMenu();
+      }
+      if (event.repeat || event.altKey || !(event.ctrlKey || event.metaKey)) {
+        return;
+      }
+      if (event.code === "KeyS" && event.shiftKey) {
+        event.preventDefault();
+        void saveFileAs();
+      } else if (event.code === "KeyS") {
+        event.preventDefault();
+        void saveFile();
+      } else if (event.code === "KeyO" && !event.shiftKey) {
+        event.preventDefault();
+        void openFile();
+      }
+    },
+    (event) => {
+      const menu = required<HTMLElement>(root, "#file-menu-root");
+      if (event.target instanceof Node && menu.contains(event.target)) {
+        return;
+      }
+      closeMenu();
+    },
+  );
+
   render();
 
   function render(): void {
@@ -221,16 +327,204 @@ export function mount(root: HTMLElement): void {
     paintErrors();
     paintSource();
     paintConsole();
+    paintDocument();
     markChanged(root, machine.changed);
     required<HTMLButtonElement>(root, "#step").disabled = !machine.ready || machine.halted;
   }
 
-  function loadSource(source: string): void {
+  function loadExample(id: string): void {
+    const example = exampleById(id);
+    if (example === undefined) {
+      paintDocument();
+      return;
+    }
+    if (!confirmDiscard()) {
+      paintDocument();
+      return;
+    }
+    replaceDocument(example.source, example.filename, undefined, example.id);
+    setFileStatus(`Loaded ${example.filename}.`);
+  }
+
+  function newFile(): void {
+    if (!confirmDiscard()) {
+      return;
+    }
+    closeMenu();
+    replaceDocument("", UNTITLED, undefined, "");
+    setFileStatus("");
+  }
+
+  async function openFile(): Promise<void> {
+    if (fileBusy || !confirmDiscard()) {
+      return;
+    }
+    closeMenu();
+    fileBusy = true;
+    try {
+      if (canOpenWithPicker()) {
+        try {
+          const handle = await openWithPicker();
+          const opened = await readHandle(handle);
+          replaceDocument(opened.text, opened.name, handle, "");
+          setFileStatus(`Opened ${opened.name}.`);
+          return;
+        } catch (error) {
+          if (isAbortError(error)) {
+            return;
+          }
+          if (!isSecurityError(error)) {
+            setFileStatus(fileFailure(error));
+            return;
+          }
+        }
+      }
+      required<HTMLInputElement>(root, "#file-input").click();
+    } finally {
+      fileBusy = false;
+    }
+  }
+
+  async function openedFromInput(): Promise<void> {
+    const input = required<HTMLInputElement>(root, "#file-input");
+    const file = input.files?.[0];
+    input.value = "";
+    if (file === undefined) {
+      return;
+    }
+    try {
+      const text = await file.text();
+      replaceDocument(text, file.name, undefined, "");
+      setFileStatus(`Opened ${file.name}.`);
+    } catch (error) {
+      setFileStatus(fileFailure(error));
+    }
+  }
+
+  async function saveFile(): Promise<void> {
+    if (fileBusy) {
+      return;
+    }
+    closeMenu();
+    if (fileHandle === undefined) {
+      await saveFileAs();
+      return;
+    }
+    fileBusy = true;
+    try {
+      await writeHandle(fileHandle, editor.value);
+      savedText = editor.value;
+      setFileStatus(`Saved ${loadedName}.`);
+      render();
+    } catch (error) {
+      if (!isAbortError(error)) {
+        setFileStatus(fileFailure(error));
+      }
+    } finally {
+      fileBusy = false;
+    }
+  }
+
+  async function saveFileAs(): Promise<void> {
+    if (fileBusy) {
+      return;
+    }
+    closeMenu();
+    const suggested = loadedName === UNTITLED ? "program.asm" : loadedName;
+    fileBusy = true;
+    try {
+      if (canSaveWithPicker()) {
+        try {
+          const handle = await saveWithPicker(suggested);
+          await writeHandle(handle, editor.value);
+          fileHandle = handle;
+          loadedName = handle.name;
+          exampleId = "";
+          savedText = editor.value;
+          setFileStatus(`Saved ${handle.name}.`);
+          render();
+          return;
+        } catch (error) {
+          if (isAbortError(error)) {
+            return;
+          }
+          if (!isSecurityError(error)) {
+            setFileStatus(fileFailure(error));
+            return;
+          }
+        }
+      }
+      downloadText(suggested, editor.value);
+      fileHandle = undefined;
+      loadedName = suggested;
+      exampleId = "";
+      savedText = editor.value;
+      setFileStatus(`Downloaded ${suggested}. This browser cannot write the file in place.`);
+      render();
+    } finally {
+      fileBusy = false;
+    }
+  }
+
+  function quit(): void {
+    if (!confirmDiscard()) {
+      return;
+    }
+    closeMenu();
+    window.close();
+    window.setTimeout(() => {
+      setFileStatus("The browser kept this page open.");
+    }, 0);
+  }
+
+  function replaceDocument(
+    source: string,
+    name: string,
+    handle: FileSystemFileHandle | undefined,
+    nextExample: string,
+  ): void {
     editor.value = source;
+    savedText = source;
+    loadedName = name;
+    fileHandle = handle;
+    exampleId = nextExample;
     machine.assemble(source);
     lookAddress = undefined;
     followWrite = true;
     render();
+  }
+
+  function confirmDiscard(): boolean {
+    if (editor.value === savedText) {
+      return true;
+    }
+    return window.confirm(`Discard unsaved edits to ${loadedName}?`);
+  }
+
+  function paintDocument(): void {
+    const name = required<HTMLElement>(root, "#loaded-name");
+    name.textContent = editor.value === savedText ? loadedName : `${loadedName} (unsaved)`;
+    const select = required<HTMLSelectElement>(root, "#examples");
+    if (select.value !== exampleId) {
+      select.value = exampleId;
+    }
+  }
+
+  function setFileStatus(message: string): void {
+    required<HTMLElement>(root, "#file-status").textContent = message;
+  }
+
+  function toggleMenu(): void {
+    const panel = required<HTMLElement>(root, "#file-menu");
+    const button = required<HTMLButtonElement>(root, "#file-menu-button");
+    const willOpen = panel.hidden;
+    panel.hidden = !willOpen;
+    button.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  }
+
+  function closeMenu(): void {
+    required<HTMLElement>(root, "#file-menu").hidden = true;
+    required<HTMLButtonElement>(root, "#file-menu-button").setAttribute("aria-expanded", "false");
   }
 
   function queueTyped(): void {
@@ -668,6 +962,19 @@ function line(label: string, text: string): HTMLElement {
   value.textContent = text;
   row.append(name, value);
   return row;
+}
+
+function bindChrome(
+  onKey: (event: KeyboardEvent) => void,
+  onPointer: (event: MouseEvent) => void,
+): void {
+  detachChrome?.();
+  window.addEventListener("keydown", onKey, true);
+  document.addEventListener("mousedown", onPointer);
+  detachChrome = () => {
+    window.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("mousedown", onPointer);
+  };
 }
 
 function required<T extends Element>(root: ParentNode, selector: string): T {

@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CONSOLE_SOURCE, EXAMPLES, SAMPLE_SOURCE } from "./examples";
 import { FORMAT_STORAGE_KEY } from "./format";
-import { CONSOLE_SOURCE, SAMPLE_SOURCE } from "./sample";
 import { mount } from "./ui";
 
 function click(root: ParentNode, selector: string): void {
@@ -11,6 +11,23 @@ function click(root: ParentNode, selector: string): void {
     throw new Error(`missing ${selector}`);
   }
   element.click();
+}
+
+function chooseExample(root: ParentNode, id: string): void {
+  const select = root.querySelector("#examples");
+  if (!(select instanceof HTMLSelectElement)) {
+    throw new Error("missing examples");
+  }
+  select.value = id;
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function editorValue(root: ParentNode): HTMLTextAreaElement {
+  const editor = root.querySelector("#editor");
+  if (!(editor instanceof HTMLTextAreaElement)) {
+    throw new Error("missing editor");
+  }
+  return editor;
 }
 
 describe("format control", () => {
@@ -119,17 +136,20 @@ describe("console panel", () => {
     expect(ports).toContain("0FFH");
     expect(ports).toContain("CR+LF");
 
-    click(root, "#load-console");
-    const editor = root.querySelector("#editor");
-    if (!(editor instanceof HTMLTextAreaElement)) {
-      throw new Error("missing editor");
-    }
+    const labels = Array.from(root.querySelectorAll("#examples option"), (option) => option.textContent);
+    expect(labels).toEqual(["Examples", ...EXAMPLES.map((example) => example.label)]);
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("sample.asm");
+
+    chooseExample(root, "console");
+    const editor = editorValue(root);
     expect(editor.value).toBe(CONSOLE_SOURCE);
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("console.asm");
     expect(root.querySelector("#status")?.textContent).toContain("Ready");
     expect(root.querySelector("#console-output")?.textContent).toBe("");
 
-    click(root, "#load-sample");
+    chooseExample(root, "sample");
     expect(editor.value).toBe(SAMPLE_SOURCE);
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("sample.asm");
     expect(root.querySelector("#next-instruction")?.textContent).toContain("LD SP,0XFF00");
   });
 
@@ -137,7 +157,7 @@ describe("console panel", () => {
     const root = document.createElement("div");
     document.body.append(root);
     mount(root);
-    click(root, "#load-console");
+    chooseExample(root, "console");
 
     click(root, "#step");
     expect(root.querySelector("#console-output")?.textContent).toBe("");
@@ -173,7 +193,7 @@ describe("console panel", () => {
     const root = document.createElement("div");
     document.body.append(root);
     mount(root);
-    click(root, "#load-console");
+    chooseExample(root, "console");
     click(root, "#step");
     click(root, "#step");
     const input = root.querySelector("#console-input");
@@ -201,3 +221,153 @@ describe("console panel", () => {
     expect(root.querySelector("#status")?.textContent).toContain("Steps: 0");
   });
 });
+
+describe("file menu", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.replaceChildren();
+    delete window.showOpenFilePicker;
+    delete window.showSaveFilePicker;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    delete window.showOpenFilePicker;
+    delete window.showSaveFilePicker;
+  });
+
+  it("loads an example by name and asks before replacing unsaved edits", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const editor = editorValue(root);
+    editor.value = `${editor.value}\n; edited`;
+    editor.dispatchEvent(new Event("input"));
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("sample.asm (unsaved)");
+
+    chooseExample(root, "flags");
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved edits to sample.asm?");
+    expect(editor.value).toContain("; edited");
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("sample.asm (unsaved)");
+
+    confirm.mockReturnValue(true);
+    click(root, "#load-example");
+    expect(editor.value).toBe(SAMPLE_SOURCE);
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("sample.asm");
+
+    chooseExample(root, "console-echo");
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("console-echo.asm");
+    expect(editor.value).toContain("IN A, (00H)");
+  });
+
+  it("opens and saves through the file picker", async () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    let written = "";
+    const handle = {
+      name: "greet.asm",
+      async getFile() {
+        return new File(["        ORG 0100H\n        NOP\n"], "greet.asm");
+      },
+      async createWritable() {
+        return {
+          async write(data: string) {
+            written = data;
+          },
+          async close() {},
+        };
+      },
+    };
+    window.showOpenFilePicker = async () => [handle as unknown as FileSystemFileHandle];
+    window.showSaveFilePicker = async () => handle as unknown as FileSystemFileHandle;
+
+    click(root, "#file-open");
+    await flush();
+    const editor = editorValue(root);
+    expect(editor.value).toContain("NOP");
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("greet.asm");
+    expect(root.querySelector("#file-status")?.textContent).toBe("Opened greet.asm.");
+
+    editor.value = editor.value.replace("NOP", "HALT");
+    editor.dispatchEvent(new Event("input"));
+    click(root, "#file-save");
+    await flush();
+    expect(written).toContain("HALT");
+    expect(written).not.toContain("NOP");
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("greet.asm");
+    expect(root.querySelector("#file-status")?.textContent).toBe("Saved greet.asm.");
+  });
+
+  it("falls back to a file input and a download", async () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const editor = editorValue(root);
+    const input = root.querySelector("#file-input");
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("missing file input");
+    }
+    const opened = vi.spyOn(input, "click").mockImplementation(() => {
+      const file = new File(["        LD A, 1\n"], "mine.asm");
+      Object.defineProperty(input, "files", { configurable: true, value: [file] });
+      input.dispatchEvent(new Event("change"));
+    });
+
+    click(root, "#file-open");
+    await flush();
+    expect(opened).toHaveBeenCalled();
+    expect(editor.value).toContain("LD A, 1");
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("mine.asm");
+
+    const clicks: HTMLAnchorElement[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicks.push(this);
+    });
+    editor.value = "        HALT\n";
+    const event = new KeyboardEvent("keydown", { code: "KeyS", ctrlKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    await flush();
+    expect(event.defaultPrevented).toBe(true);
+    expect(clicks.some((link) => link.download === "mine.asm")).toBe(true);
+    expect(root.querySelector("#file-status")?.textContent).toContain("Downloaded mine.asm");
+  });
+
+  it("asks before New and says when Quit leaves the page open", () => {
+    vi.useFakeTimers();
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const editor = editorValue(root);
+    editor.value = "dirty";
+    editor.dispatchEvent(new Event("input"));
+
+    click(root, "#file-new");
+    expect(editor.value).toBe("dirty");
+    confirm.mockReturnValue(true);
+    click(root, "#file-new");
+    expect(editor.value).toBe("");
+    expect(root.querySelector("#loaded-name")?.textContent).toBe("Untitled");
+
+    const close = vi.spyOn(window, "close").mockImplementation(() => {});
+    editor.value = "dirty again";
+    confirm.mockReturnValue(false);
+    click(root, "#file-quit");
+    expect(close).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    click(root, "#file-quit");
+    expect(close).toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(root.querySelector("#file-status")?.textContent).toBe("The browser kept this page open.");
+    vi.useRealTimers();
+  });
+});
+
+function flush(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}

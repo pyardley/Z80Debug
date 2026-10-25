@@ -43,6 +43,9 @@ const built = await esbuild.build({
     fs: resolve(root, "src/shims/fs.ts"),
     path: resolve(root, "src/shims/path.ts"),
   },
+  loader: {
+    ".asm": "text",
+  },
   write: false,
   logLevel: "warning",
 });
@@ -114,6 +117,10 @@ function assertBundle(code) {
     "Directory includes are not available in this debugger.",
     "Binary inserts are not available in this debugger.",
     "Console example",
+    "Type a character and press Queue before stepping the IN.",
+    "The browser kept this page open.",
+    "Discard unsaved edits",
+    "console-echo",
     "Current instruction, line ",
     "z80debug.displayFormat",
   ]) {

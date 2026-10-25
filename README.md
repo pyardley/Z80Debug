@@ -9,7 +9,11 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints, usually http://localhost:5173. The editor starts with a short sample. Click **Assemble**, then **Step**. **Sample** reloads that program. **Console example** loads a program that prints a prompt with `OUT` and reads one character with `IN`.
+Open the URL Vite prints, usually http://localhost:5173. The editor starts on `sample.asm`. Click **Assemble**, then **Step**. **Examples** loads another short program and replaces the editor. **Load** brings the selected program back after an edit. The programs live in `examples/`: the original sample, the console example, a console echo, flags, memory stores, register exchange, and a byte table.
+
+**File** works on a source file from this computer. **New** clears the editor. **Open** reads a local `.asm` or other text file. In Chrome, a later **Save** writes that same file. If the file picker is missing, Open uses a normal file input and Save downloads a copy. **Save As** picks a new file, or downloads one. **Quit** calls `window.close()`. If the browser keeps the page open, the page says so. New, Open, an example, and Quit ask before discarding unsaved edits.
+
+Ctrl+O or Cmd+O opens. Ctrl+S or Cmd+S saves. Ctrl+Shift+S or Cmd+Shift+S is Save As.
 
 `z80debug.html` in the repository root is that same page as one file: the stylesheet in a `<style>` block and the app as one classic script. Download it and open it. Nothing else is fetched.
 
