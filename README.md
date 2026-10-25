@@ -11,6 +11,14 @@ npm run dev
 
 Open the URL Vite prints, usually http://localhost:5173. The editor starts with a short sample. Click **Assemble**, then **Step**. **Sample** reloads that program. **Console example** loads a program that prints a prompt with `OUT` and reads one character with `IN`.
 
+`z80debug.html` in the repository root is that same page as one file: the stylesheet in a `<style>` block and the app as one classic script. Download it and open it. Nothing else is fetched.
+
+```sh
+npm run build:html
+```
+
+That regenerates `z80debug.html` after a source change. It needs the packages from `npm install`.
+
 ```sh
 npm test
 npm run build
@@ -35,7 +43,7 @@ Before a program assembles, memory and every register are zero and **Step** is d
 
 ## Display format
 
-**Hex**, **Decimal**, **Binary**, and **ASCII** change only how values are drawn. The choice is stored in `localStorage` under `z80debug.displayFormat`.
+**Hex**, **Decimal**, **Binary**, and **ASCII** change only how values are drawn. The choice is stored in `localStorage` under `z80debug.displayFormat`. If the browser refuses storage, the page still opens in hexadecimal. A later choice applies for that visit and is not stored.
 
 - Bytes are 2 hex digits, 3 decimal columns, 8 binary bits, or one ASCII character.
 - Words and addresses are 4 hex digits, 5 decimal columns, 16 binary bits, or two ASCII characters (high byte, then low byte).
