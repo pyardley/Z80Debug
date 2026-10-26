@@ -290,5 +290,6 @@ function tokenText(move: Travel, format: DisplayFormat): string {
   if (consoleMove && move.value >= 0x20 && move.value <= 0x7e) {
     return asciiGlyph(move.value);
   }
-  return move.width === 16 ? formatWord(move.value, format) : formatByte(move.value, format);
+  const value = move.width === 16 ? formatWord(move.value, format) : formatByte(move.value, format);
+  return move.label === undefined || move.label === "" ? value : `${move.label} ${value.trim()}`;
 }

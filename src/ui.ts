@@ -183,7 +183,7 @@ export function mount(root: HTMLElement): void {
       </div>
       <div>
         <div class="pane-head"><h2>Stack</h2></div>
-        <p class="hint">The stack grows downward. The byte at SP is the low byte of the top word. The row marked SP is the top of the stack.</p>
+        <p class="hint">The stack grows downward. Each row is one word, high byte then low byte. The row marked SP is the top of the stack. The label names the pair that was pushed.</p>
         <div id="stack-sp" class="stack-sp"></div>
         <div id="memory-stack" class="dump stack-dump"></div>
       </div>
@@ -755,6 +755,8 @@ export function mount(root: HTMLElement): void {
         memory: machine.memory,
         writes: machine.writes,
         sp: machine.cpu.regs.sp,
+        stackWords: machine.stackWords,
+        stackTouched: machine.stackTouched,
       },
       format,
     );

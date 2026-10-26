@@ -3,6 +3,7 @@ import { Z80, type Hal } from "z80-emulator";
 import { assemble, type AssembleError } from "./assemble";
 import { ConsoleDevice } from "./console";
 import { disassembleAt } from "./disasm";
+import { recordStackStep, type StackWord } from "./stack";
 
 export const MEMORY_SIZE = 0x10000;
 
@@ -65,6 +66,8 @@ export class Machine {
   writes: MemoryWrite[] = [];
   lastWriteAddress: number | undefined;
   readonly changed = new Set<string>();
+  readonly stackWords = new Map<number, StackWord>();
+  readonly stackTouched = new Set<number>();
 
   private image: Uint8Array | null = null;
   private sourceLines: ReadonlyMap<number, number> = new Map();
@@ -129,6 +132,8 @@ export class Machine {
     this.writes = [];
     this.lastWriteAddress = undefined;
     this.changed.clear();
+    this.stackWords.clear();
+    this.stackTouched.clear();
     this.recording = false;
     this.recorded = [];
     this.console.clear();
@@ -144,6 +149,7 @@ export class Machine {
       return;
     }
     const before = this.viewKeys();
+    const spBefore = this.cpu.regs.sp & 0xffff;
     const pc = this.cpu.regs.pc & 0xffff;
     const opcode = this.memory[pc];
     this.lastInstruction = disassembleAt(this.memory, pc).text;
@@ -159,6 +165,14 @@ export class Machine {
     this.halted = this.cpu.regs.halted !== 0;
     this.steps += 1;
     this.writes = collapseWrites(this.recorded);
+    recordStackStep(
+      this.stackWords,
+      this.stackTouched,
+      this.lastInstruction,
+      spBefore,
+      this.cpu.regs.sp & 0xffff,
+      this.writes,
+    );
     if (this.writes.length > 0) {
       this.lastWriteAddress = this.writes[this.writes.length - 1].address;
     }

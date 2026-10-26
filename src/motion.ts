@@ -1,5 +1,6 @@
 import { hi } from "z80-base";
 import type { Machine, MemoryWrite } from "./machine";
+import { formatStackLabel } from "./stack";
 
 /** A short trip, about half a second. Stepping again cancels whatever is still in the air. */
 export const MOTION_MS = 520;
@@ -20,6 +21,8 @@ export interface Travel {
   value: number;
   width: 8 | 16;
   pop: boolean;
+  /** Pair name, return, or source → destination. Present on stack traffic. */
+  label?: string;
 }
 
 export type MotionPlan =
@@ -115,7 +118,7 @@ export function planAfterStep(base: MotionBase, machine: Machine): MotionPlan {
   const exx = banks.main.exxActive ? banks.main : banks.alternate;
   const grown = machine.console.bytes.slice(base.outLength);
   const mnemonic = machine.lastInstruction;
-  return planMotion({
+  return attachStackLabel(planMotion({
     mnemonic,
     a: hi(af.af),
     af: af.af & 0xffff,
@@ -138,7 +141,35 @@ export function planAfterStep(base: MotionBase, machine: Machine): MotionPlan {
     writes: machine.writes,
     consoleOut: grown.length > 0 ? grown[grown.length - 1] & 0xff : undefined,
     consoleIn: readsConsole(mnemonic, base.bc, machine.console.waiting < base.waiting),
-  });
+  }), machine, base.sp);
+}
+
+function attachStackLabel(plan: MotionPlan, machine: Machine, spBefore: number): MotionPlan {
+  if (plan.type !== "travel") {
+    return plan;
+  }
+  const mnemonic = machine.lastInstruction.trim().toUpperCase();
+  const pushOrCall = /^PUSH\b/.test(mnemonic) || /^CALL\b/.test(mnemonic) || /^RST\b/.test(mnemonic);
+  const popOrRet = /^POP\b/.test(mnemonic) || /^RET\b/.test(mnemonic);
+  const address = pushOrCall
+    ? machine.cpu.regs.sp & 0xffff
+    : popOrRet
+      ? spBefore & 0xffff
+      : undefined;
+  if (address === undefined) {
+    return plan;
+  }
+  const label = formatStackLabel(machine.stackWords.get(address));
+  if (label === "") {
+    return plan;
+  }
+  return {
+    type: "travel",
+    moves: plan.moves.map((move) => {
+      const mem = move.to.type === "mem" ? move.to.address : move.from.type === "mem" ? move.from.address : undefined;
+      return mem === address ? { ...move, label } : move;
+    }),
+  };
 }
 
 export function motionMemoryAddress(plan: MotionPlan): number | undefined {

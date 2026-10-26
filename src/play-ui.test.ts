@@ -192,10 +192,10 @@ describe("tabletop debugger", () => {
     const top = root.querySelector("#memory-stack [data-stack-top='true']");
     expect(top?.textContent).toContain("FEFE");
     expect(top?.textContent).toContain("▶ SP");
-    expect(top?.textContent).toContain("Top of stack, low byte");
-    expect(top?.querySelector(".mem-byte")?.textContent).toBe("EF");
-    expect(top?.querySelector(".mem-byte")?.classList.contains("changed")).toBe(true);
-    expect(document.querySelector(".travel-token")?.textContent).toBe("BEEF");
+    expect(top?.textContent).toContain("BEEF");
+    expect(top?.querySelector("[data-label]")?.textContent).toBe("BC");
+    expect(top?.querySelector(".mem-byte")?.textContent).toBe("BEEF");
+    expect(document.querySelector(".travel-token")?.textContent).toBe("BC BEEF");
     expect(document.querySelector(".flying-stack-mark")?.textContent).toContain("SP");
 
     click(root, "#motion-toggle");
@@ -206,6 +206,9 @@ describe("tabletop debugger", () => {
     expect(root.querySelector("#memory-stack [data-stack-top='true']")?.textContent).toContain("FEFE");
     click(root, "#step");
     expect(root.querySelector("#memory-stack [data-stack-top='true']")?.textContent).toContain("FF00");
+    const word = root.querySelector("#memory-stack [data-addr='65278']");
+    expect(word?.textContent).toBe("BEEF");
+    expect(word?.parentElement?.querySelector("[data-label]")?.textContent).toBe("BC → DE");
   });
 });
 
