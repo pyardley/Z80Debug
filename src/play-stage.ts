@@ -15,6 +15,7 @@ import {
   scaledMs,
   shiftTracks,
   type Anchor,
+  type ArithColumn,
   type ArithMotion,
   type BranchMotion,
   type DaaMotion,
@@ -522,6 +523,17 @@ export class MotionStage {
     return chip;
   }
 
+  private makeDigit(value: number): HTMLDivElement {
+    const chip = this.root.ownerDocument.createElement("div");
+    chip.className = "alu-bit";
+    chip.dataset.value = String(value);
+    chip.textContent = String(value);
+    chip.setAttribute("aria-hidden", "true");
+    this.root.ownerDocument.body.append(chip);
+    this.nodes.push(chip);
+    return chip;
+  }
+
   private flyLogic(plan: LogicMotion, format: DisplayFormat, banks: Banks, sourceRect: Box | undefined): void {
     const rows = logicRows(plan.op, plan.left, plan.right);
     const destBox = this.anchorBox(plan.dest, banks, sourceRect) ?? { left: 80, top: 220, width: 40, height: 28 };
@@ -911,98 +923,194 @@ export class MotionStage {
     if (plan.other.type !== "source") {
       this.dim(plan.other, banks);
     }
-    const bit = 28;
-    const gap = 6;
-    const rowWidth = 8 * bit + 7 * gap;
-    const rows = 3;
-    const stackHeight = rows * bit + (rows - 1) * gap;
+    const borrow = plan.op === "sub" || plan.op === "sbc" || plan.op === "cp";
+    const token = this.flyDecimal({
+      columns: plan.columns,
+      op: plan.op,
+      borrow,
+      incoming: plan.op === "adc" || plan.op === "sbc",
+      duration: ALU_MS,
+      destBox,
+      otherBox,
+      banks,
+      boardClass: "alu-board",
+      carryClass: "alu-carry",
+      label: plan.op.toUpperCase(),
+      labelClass: "alu-op",
+      resultClass: "alu-result",
+      resultText: formatByte(plan.result, format),
+      resultValue: plan.result,
+      format,
+      flyHome: plan.stored,
+      boardData: {
+        op: plan.op,
+        result: String(plan.result),
+        stored: plan.stored ? "1" : "0",
+      },
+    });
+    token.dataset.stored = plan.stored ? "1" : "0";
+    token.dataset.op = plan.op;
+    this.revealFlags(banks, plan.flags, ALU_MS);
+  }
+
+  private flyWord(plan: WordMotion, format: DisplayFormat, banks: Banks): void {
+    const destBox = this.anchorBox({ type: "reg", name: plan.dest }, banks, undefined) ?? { left: 120, top: 240, width: 64, height: 28 };
+    const otherBox = this.anchorBox({ type: "reg", name: plan.other }, banks, undefined) ?? destBox;
+    this.dim({ type: "reg", name: plan.dest }, banks);
+    const title = plan.op === "add" ? `ADD ${plan.dest.toUpperCase()}` : `${plan.op.toUpperCase()} ${plan.dest.toUpperCase()}`;
+    const token = this.flyDecimal({
+      columns: plan.columns,
+      op: plan.op,
+      borrow: plan.op === "sbc",
+      incoming: plan.op === "adc" || plan.op === "sbc",
+      duration: WORD_MS,
+      destBox,
+      otherBox,
+      banks,
+      boardClass: "word-board",
+      carryClass: "word-carry",
+      label: title,
+      labelClass: "word-op",
+      resultClass: "word-result",
+      resultText: formatWord(plan.result, format).trim(),
+      resultValue: plan.result,
+      format,
+      flyHome: true,
+      boardData: {
+        op: plan.op,
+        dest: plan.dest,
+        result: String(plan.result),
+      },
+    });
+    token.dataset.dest = plan.dest;
+    this.revealFlags(banks, plan.flags, WORD_MS);
+  }
+
+  /** Operand rows are always decimal. The landing token uses the selected format. */
+  private flyDecimal(spec: {
+    columns: readonly ArithColumn[];
+    op: string;
+    borrow: boolean;
+    incoming: boolean;
+    duration: number;
+    destBox: Box;
+    otherBox: Box;
+    banks: Banks;
+    boardClass: string;
+    carryClass: string;
+    label: string;
+    labelClass: string;
+    resultClass: string;
+    resultText: string;
+    resultValue: number;
+    format: DisplayFormat;
+    flyHome: boolean;
+    boardData: Record<string, string>;
+  }): HTMLDivElement {
+    const digit = 40;
+    const gap = 8;
+    const places = spec.columns.length;
+    const rowWidth = places * digit + Math.max(0, places - 1) * gap;
+    const stackHeight = digit * 3 + gap * 2;
     const padX = 16;
-    const padTop = 46;
+    const padTop = 72;
     const padBottom = 14;
-    const board = this.placeBoard("alu-board", rowWidth + padX * 2, stackHeight + padTop + padBottom, destBox);
-    board.dataset.op = plan.op;
-    board.dataset.result = String(plan.result);
-    board.dataset.stored = plan.stored ? "1" : "0";
+    const board = this.placeBoard(spec.boardClass, rowWidth + padX * 2, stackHeight + padTop + padBottom, spec.destBox);
+    for (const [key, value] of Object.entries(spec.boardData)) {
+      board.dataset[key] = value;
+    }
     const rowLeft = Number(board.dataset.left) + padX;
     const rowTop = Number(board.dataset.top) + padTop;
     const slotAt = (row: number, slot: number) => ({
-      x: rowLeft + slot * (bit + gap),
-      y: rowTop + row * (bit + gap),
+      x: rowLeft + slot * (digit + gap),
+      y: rowTop + row * (digit + gap),
     });
     const fromBox = (box: Box) => ({
-      x: box.left + box.width / 2 - bit / 2,
-      y: box.top + box.height / 2 - bit / 2,
+      x: box.left + box.width / 2 - digit / 2,
+      y: box.top + box.height / 2 - digit / 2,
     });
-    const origins = [fromBox(destBox), fromBox(otherBox)];
-    const bySlot = [...plan.columns].sort((a, b) => b.bit - a.bit);
+    const origins = [fromBox(spec.destBox), fromBox(spec.otherBox)];
+    const bySlot = [...spec.columns].sort((a, b) => b.place - a.place);
     (["left", "right", "result"] as const).forEach((name, row) => {
       bySlot.forEach((column, slot) => {
-        const value = name === "left" ? column.left : name === "right" ? column.right : column.sum;
-        const chip = this.makeBit(value);
-        chip.className = "alu-bit";
+        const value = name === "left" ? column.left : name === "right" ? column.right : column.digit;
+        const chip = this.makeDigit(value);
         chip.dataset.row = name;
         chip.dataset.slot = String(slot);
-        chip.dataset.bit = String(column.bit);
-        chip.dataset.op = plan.op;
+        chip.dataset.place = String(column.place);
+        chip.dataset.op = spec.op;
         const home = slotAt(row, slot);
         const origin = origins[row] ?? {
           x: (slotAt(0, slot).x + slotAt(1, slot).x) / 2,
           y: (slotAt(0, slot).y + slotAt(1, slot).y) / 2,
         };
-        const appear = name === "result" ? 0.34 + (7 - column.bit) * 0.06 : 0.16;
+        const appear = name === "result" ? 0.36 + column.place * 0.08 : 0.14;
         this.animate(chip, [
           { transform: `translate(${origin.x}px, ${origin.y}px) scale(0.4)`, opacity: 0 },
           { transform: `translate(${origin.x}px, ${origin.y}px) scale(0.4)`, opacity: 0, offset: Math.max(0.04, appear - 0.05) },
-          { transform: `translate(${home.x}px, ${home.y}px) scale(1.08)`, opacity: 1, offset: Math.min(0.82, appear + 0.08) },
+          { transform: `translate(${home.x}px, ${home.y}px) scale(1.08)`, opacity: 1, offset: Math.min(0.84, appear + 0.1) },
           { transform: `translate(${home.x}px, ${home.y}px) scale(1)`, opacity: 1, offset: 0.9 },
           { transform: `translate(${home.x}px, ${home.y}px) scale(0.85)`, opacity: name === "result" ? 0 : 0.2 },
-        ], ALU_MS, "linear");
+        ], spec.duration, "linear");
       });
     });
-    const borrow = plan.op === "sub" || plan.op === "sbc" || plan.op === "cp";
-    for (const column of plan.columns) {
+    if (spec.incoming) {
+      const carryIn = spec.columns.find((column) => column.place === 0)?.carryIn ?? 0;
+      const chip = this.makeBit(carryIn);
+      chip.className = spec.carryClass;
+      chip.dataset.value = String(carryIn);
+      chip.dataset.kind = spec.borrow ? "borrow" : "carry";
+      chip.dataset.incoming = "1";
+      chip.dataset.into = "0";
+      const ones = slotAt(2, places - 1);
+      const start = { x: ones.x + digit + 14, y: ones.y };
+      this.animate(chip, [
+        { transform: `translate(${start.x}px, ${start.y}px) scale(0.4)`, opacity: 0 },
+        { transform: `translate(${start.x}px, ${start.y}px) scale(0.85)`, opacity: 1, offset: 0.16 },
+        { transform: `translate(${ones.x}px, ${ones.y - 10}px) scale(1.08)`, opacity: 1, offset: 0.3 },
+        { transform: `translate(${ones.x}px, ${ones.y - 10}px) scale(1)`, opacity: 1, offset: 0.48 },
+        { transform: `translate(${ones.x}px, ${ones.y}px) scale(0.8)`, opacity: 0 },
+      ], spec.duration, "linear");
+    }
+    for (const column of spec.columns) {
       if (column.carryOut !== 1) {
         continue;
       }
-      const fromSlot = 7 - column.bit;
-      const intoBit = column.bit + 1;
+      const fromSlot = places - 1 - column.place;
+      const intoPlace = column.place + 1;
       const chip = this.makeBit(1);
-      chip.className = "alu-carry";
-      chip.dataset.bit = String(column.bit);
+      chip.className = spec.carryClass;
+      chip.dataset.place = String(column.place);
       chip.dataset.value = "1";
-      chip.dataset.kind = borrow ? "borrow" : "carry";
-      const start = slotAt(1, fromSlot);
-      const end = intoBit < 8
-        ? slotAt(2, 7 - intoBit)
-        : this.flagPoint(banks, "c", { x: start.x + bit + 8, y: start.y - 36 });
-      if (intoBit < 8) {
-        chip.dataset.into = String(intoBit);
-      } else {
-        chip.dataset.into = "c";
-      }
-      const begin = 0.3 + column.bit * 0.06;
-      const done = Math.min(0.86, begin + 0.1);
+      chip.dataset.kind = spec.borrow ? "borrow" : "carry";
+      const fromAbove = slotAt(0, fromSlot);
+      const start = { x: fromAbove.x, y: fromAbove.y - 34 };
+      const nextAbove = slotAt(0, intoPlace < places ? places - 1 - intoPlace : fromSlot);
+      const end = intoPlace < places
+        ? { x: nextAbove.x, y: nextAbove.y - 34 }
+        : this.flagPoint(spec.banks, "c", { x: start.x - digit, y: start.y - 36 });
+      chip.dataset.into = intoPlace < places ? String(intoPlace) : "c";
+      const begin = 0.28 + column.place * 0.08;
+      const done = Math.min(0.86, begin + 0.12);
       this.animate(chip, [
         { transform: `translate(${start.x}px, ${start.y - 8}px) scale(0.4)`, opacity: 0 },
         { transform: `translate(${start.x}px, ${start.y - 8}px) scale(0.7)`, opacity: 1, offset: begin },
         { transform: `translate(${end.x}px, ${end.y - 10}px) scale(1.1)`, opacity: 1, offset: done },
         { transform: `translate(${end.x}px, ${end.y}px) scale(1)`, opacity: 1, offset: 0.92 },
         { transform: `translate(${end.x}px, ${end.y}px) scale(0.8)`, opacity: 0 },
-      ], ALU_MS, "linear");
+      ], spec.duration, "linear");
     }
-    this.labelChip("alu-op", plan.op.toUpperCase(), board, plan.op);
-    const token = this.resultChip("alu-result", formatByte(plan.result, format), plan.result, format);
-    token.dataset.stored = plan.stored ? "1" : "0";
-    token.dataset.op = plan.op;
+    this.labelChip(spec.labelClass, spec.label, board, spec.op);
+    const token = this.resultChip(spec.resultClass, spec.resultText, spec.resultValue, spec.format);
     const width = token.offsetWidth || 52;
     const height = token.offsetHeight || 34;
-    const resultHome = slotAt(2, 3);
-    const start = { x: resultHome.x + bit / 2 - width / 2, y: resultHome.y };
+    const resultHome = slotAt(2, Math.floor((places - 1) / 2));
+    const start = { x: resultHome.x + digit / 2 - width / 2, y: resultHome.y };
     const end = {
-      x: destBox.left + destBox.width / 2 - width / 2,
-      y: destBox.top + destBox.height / 2 - height / 2,
+      x: spec.destBox.left + spec.destBox.width / 2 - width / 2,
+      y: spec.destBox.top + spec.destBox.height / 2 - height / 2,
     };
-    this.animate(token, plan.stored
+    this.animate(token, spec.flyHome
       ? [
         { transform: `translate(${start.x}px, ${start.y}px) scale(0.4)`, opacity: 0 },
         { transform: `translate(${start.x}px, ${start.y}px) scale(0.4)`, opacity: 0, offset: 0.72 },
@@ -1014,88 +1122,8 @@ export class MotionStage {
         { transform: `translate(${start.x}px, ${start.y}px) scale(0.4)`, opacity: 0, offset: 0.7 },
         { transform: `translate(${start.x}px, ${start.y - 8}px) scale(1.08)`, opacity: 1, offset: 0.84 },
         { transform: `translate(${start.x}px, ${start.y - 8}px) scale(1)`, opacity: 1 },
-      ], ALU_MS, "linear");
-    this.revealFlags(banks, plan.flags, ALU_MS);
-  }
-
-  private flyWord(plan: WordMotion, format: DisplayFormat, banks: Banks): void {
-    const destBox = this.anchorBox({ type: "reg", name: plan.dest }, banks, undefined) ?? { left: 120, top: 240, width: 64, height: 28 };
-    this.dim({ type: "reg", name: plan.dest }, banks);
-    const cellW = format === "binary" ? 92 : 54;
-    const cellH = 32;
-    const gap = 8;
-    const pairW = cellW * 2 + gap;
-    const boardW = pairW + 28;
-    const boardH = cellH * 3 + 46 + 18;
-    const board = this.placeBoard("word-board", boardW, boardH, destBox);
-    board.dataset.op = plan.op;
-    board.dataset.dest = plan.dest;
-    board.dataset.result = String(plan.result);
-    const left = Number(board.dataset.left) + 14;
-    const top = Number(board.dataset.top) + 42;
-    const place = (row: number, high: boolean) => ({
-      x: left + (high ? 0 : cellW + gap),
-      y: top + row * (cellH + 6),
-    });
-    const low = plan.halves[0];
-    const high = plan.halves[1];
-    ([
-      ["left", 0, high.left, low.left],
-      ["right", 1, high.right, low.right],
-      ["result", 2, high.result, low.result],
-    ] as const).forEach(([row, index, highByte, lowByte]) => {
-      ([["high", highByte, true], ["low", lowByte, false]] as const).forEach(([half, value, isHigh]) => {
-        const chip = this.root.ownerDocument.createElement("div");
-        chip.className = "word-byte";
-        chip.dataset.row = row;
-        chip.dataset.half = half;
-        chip.dataset.value = String(value);
-        chip.textContent = formatByte(value, format).trim();
-        chip.setAttribute("aria-hidden", "true");
-        chip.style.width = `${cellW}px`;
-        this.root.ownerDocument.body.append(chip);
-        this.nodes.push(chip);
-        const home = place(index, isHigh);
-        const origin = { x: destBox.left, y: destBox.top };
-        const appear = row === "result" ? 0.55 : 0.18;
-        this.animate(chip, [
-          { transform: `translate(${origin.x}px, ${origin.y}px) scale(0.5)`, opacity: 0 },
-          { transform: `translate(${home.x}px, ${home.y}px) scale(1)`, opacity: 1, offset: appear },
-          { transform: `translate(${home.x}px, ${home.y}px) scale(1)`, opacity: 1, offset: 0.9 },
-          { transform: `translate(${home.x}px, ${home.y}px) scale(0.9)`, opacity: row === "result" ? 0 : 0.3 },
-        ], WORD_MS, "linear");
-      });
-    });
-    const carry = this.makeBit(low.carryOut);
-    carry.className = "word-carry";
-    carry.dataset.value = String(low.carryOut);
-    carry.dataset.kind = plan.op === "sbc" ? "borrow" : "carry";
-    const from = place(2, false);
-    const to = place(2, true);
-    this.animate(carry, [
-      { transform: `translate(${from.x + cellW - 16}px, ${from.y - 6}px) scale(0.4)`, opacity: 0 },
-      { transform: `translate(${from.x + cellW - 16}px, ${from.y - 18}px) scale(1)`, opacity: 1, offset: 0.42 },
-      { transform: `translate(${to.x + cellW - 8}px, ${to.y - 18}px) scale(1.12)`, opacity: 1, offset: 0.62 },
-      { transform: `translate(${to.x + 8}px, ${to.y}px) scale(1)`, opacity: 1, offset: 0.78 },
-      { transform: `translate(${to.x + 8}px, ${to.y}px) scale(0.8)`, opacity: 0 },
-    ], WORD_MS, "linear");
-    const title = plan.op === "add" ? `ADD ${plan.dest.toUpperCase()}` : `${plan.op.toUpperCase()} ${plan.dest.toUpperCase()}`;
-    this.labelChip("word-op", title, board, plan.op);
-    const token = this.resultChip("word-result", formatWord(plan.result, format).trim(), plan.result, format);
-    token.dataset.dest = plan.dest;
-    const width = token.offsetWidth || 72;
-    const height = token.offsetHeight || 34;
-    const start = place(2, true);
-    const end = {
-      x: destBox.left + destBox.width / 2 - width / 2,
-      y: destBox.top + destBox.height / 2 - height / 2,
-    };
-    this.animate(token, [
-      { transform: `translate(${start.x}px, ${start.y}px) scale(0.4)`, opacity: 0 },
-      { transform: `translate(${start.x}px, ${start.y}px) scale(0.4)`, opacity: 0, offset: 0.72 },
-      { transform: `translate(${end.x}px, ${end.y}px) scale(1)`, opacity: 1 },
-    ], WORD_MS, "linear");
-    this.revealFlags(banks, plan.flags, WORD_MS);
+      ], spec.duration, "linear");
+    return token;
   }
 
   private flyDaa(plan: DaaMotion, format: DisplayFormat, banks: Banks): void {
