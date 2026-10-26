@@ -56,6 +56,17 @@ export class ConsoleDevice {
     this.input.length = 0;
   }
 
+  capture(): { output: number[]; input: number[] } {
+    return { output: this.output.slice(), input: this.input.slice() };
+  }
+
+  restore(state: { output: number[]; input: number[] }): void {
+    this.output.length = 0;
+    this.output.push(...state.output);
+    this.input.length = 0;
+    this.input.push(...state.input);
+  }
+
   get waiting(): number {
     return this.input.length;
   }

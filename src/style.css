@@ -325,6 +325,25 @@ h3 { font-size: 0.95rem; }
   color: #6d685e;
 }
 
+.gutter-row.runnable { cursor: pointer; }
+.gutter-row.runnable:hover { background: #e7f0dc; }
+
+.num[data-key],
+#memory-pc .mem-byte,
+#memory-focus .mem-byte { cursor: pointer; }
+
+.value-edit {
+  font: inherit;
+  width: 8ch;
+  max-width: 100%;
+  border: 1px solid #8d8878;
+  border-radius: 4px;
+  padding: 0 0.15rem;
+  background: #fff;
+}
+
+.value-edit.invalid { outline: 2px solid #7a2e16; }
+
 .gutter-row.current {
   background: #cfe3b8;
   box-shadow: inset 3px 0 0 #1f4d32;

@@ -429,6 +429,83 @@ describe("file menu", () => {
   });
 });
 
+describe("run, step back, edit, and the address box", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.replaceChildren();
+  });
+
+  function assemble(root: ParentNode, source: string): void {
+    editorValue(root).value = source;
+    click(root, "#assemble");
+  }
+
+  it("runs to a gutter line and Stop leaves the machine where it is", async () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    expect(root.querySelector("#step-back")?.textContent).toBe("Step back");
+    expect(root.querySelector<HTMLButtonElement>("#step-back")?.disabled).toBe(true);
+    assemble(root, "        NOP\nLOOP:   JR LOOP\n");
+    const halt = root.querySelector(".gutter-row[role='button']");
+    expect(halt?.getAttribute("title")).toBe("Run to this line");
+    const rows = root.querySelectorAll(".gutter-row.runnable");
+    expect(rows.length).toBeGreaterThan(1);
+    rows[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(root.querySelector("#step")?.textContent).toBe("Stop");
+    expect(root.querySelector("#status")?.textContent).toContain("Steps: 1");
+    click(root, "#step");
+    expect(root.querySelector("#step")?.textContent).toBe("Step");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(root.querySelector("#status")?.textContent).toContain("Steps: 1");
+  });
+
+  it("steps back one instruction and edits a register in the current format", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    assemble(root, "        LD B, A\n");
+    const cell = root.querySelector("[data-key='main.a']");
+    if (!(cell instanceof HTMLElement)) {
+      throw new Error("missing A");
+    }
+    cell.click();
+    const input = cell.querySelector("input");
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("missing editor");
+    }
+    input.value = "3C";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(root.querySelector("[data-key='main.a']")?.textContent).toBe("3C");
+    click(root, "#step");
+    expect(root.querySelector("[data-key='main.b']")?.textContent).toBe("3C");
+    click(root, "#step-back");
+    expect(root.querySelector("[data-key='main.a']")?.textContent).toBe("3C");
+    expect(root.querySelector("[data-key='main.b']")?.textContent).toBe("00");
+  });
+
+  it("keeps a filled address box from following a later write", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    assemble(root, "        LD A, 1\n        LD (0C000H), A\n");
+    const box = root.querySelector("#jump-address");
+    if (!(box instanceof HTMLInputElement)) {
+      throw new Error("missing address");
+    }
+    box.value = "0100H";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    click(root, "#jump-form button[type='submit']");
+    click(root, "#step");
+    click(root, "#step");
+    expect(root.querySelector("#memory-focus-title")?.textContent).toContain("0100");
+    expect(root.querySelector("#memory-focus-title")?.textContent).not.toContain("C000");
+    box.value = "";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(root.querySelector("#memory-focus-title")?.textContent).toContain("C000");
+  });
+});
+
 function flush(): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, 0);

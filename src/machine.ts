@@ -37,6 +37,13 @@ export interface MachineSnapshot {
   iy: number;
   i: number;
   r: number;
+  r7: number;
+  memptr: number;
+  iff1: number;
+  iff2: number;
+  im: number;
+  halted: number;
+  tStates: number;
   af: number;
   bc: number;
   de: number;
@@ -48,6 +55,17 @@ export interface MachineSnapshot {
   afAltActive: boolean;
   exxAltActive: boolean;
   memory: Uint8Array;
+  steps: number;
+  lastInstruction: string;
+  writes: MemoryWrite[];
+  lastWriteAddress: number | undefined;
+  lastAccessAddress: number | undefined;
+  lastAccessKind: "read" | "write" | undefined;
+  consoleOutput: number[];
+  consoleInput: number[];
+  stackWords: [number, StackWord][];
+  stackTouched: number[];
+  changed: string[];
 }
 
 export class Machine {
@@ -65,6 +83,8 @@ export class Machine {
   nextInstruction = "NOP";
   writes: MemoryWrite[] = [];
   lastWriteAddress: number | undefined;
+  lastAccessAddress: number | undefined;
+  lastAccessKind: "read" | "write" | undefined;
   readonly changed = new Set<string>();
   readonly stackWords = new Map<number, StackWord>();
   readonly stackTouched = new Set<number>();
@@ -75,13 +95,19 @@ export class Machine {
   private exxAltActive = false;
   private recording = false;
   private recorded: MemoryWrite[] = [];
+  private accesses: { kind: "read" | "write"; address: number }[] = [];
+  private history: MachineSnapshot[] = [];
 
   constructor() {
     const machine = this;
     this.hal = {
       tStateCount: 0,
       readMemory(address: number): number {
-        return machine.memory[address & 0xffff];
+        const location = address & 0xffff;
+        if (machine.recording) {
+          machine.accesses.push({ kind: "read", address: location });
+        }
+        return machine.memory[location];
       },
       writeMemory(address: number, value: number): void {
         machine.store(address, value);
@@ -131,11 +157,15 @@ export class Machine {
     this.lastInstruction = "";
     this.writes = [];
     this.lastWriteAddress = undefined;
+    this.lastAccessAddress = undefined;
+    this.lastAccessKind = undefined;
     this.changed.clear();
     this.stackWords.clear();
     this.stackTouched.clear();
     this.recording = false;
     this.recorded = [];
+    this.accesses = [];
+    this.history = [];
     this.console.clear();
     this.refreshNext();
   }
@@ -151,12 +181,17 @@ export class Machine {
     const before = this.viewKeys();
     const spBefore = this.cpu.regs.sp & 0xffff;
     const pc = this.cpu.regs.pc & 0xffff;
+    const viewed = disassembleAt(this.memory, pc);
+    const fetchCount = viewed.bytes.length;
     const opcode = this.memory[pc];
-    this.lastInstruction = disassembleAt(this.memory, pc).text;
+    this.history.push(this.snapshot());
+    this.lastInstruction = viewed.text;
     this.recorded = [];
+    this.accesses = [];
     this.recording = true;
     this.cpu.step();
     this.recording = false;
+    this.noteOperandAccess(fetchCount);
     if (opcode === OPCODE_EX_AF) {
       this.afAltActive = !this.afAltActive;
     } else if (opcode === OPCODE_EXX) {
@@ -224,8 +259,87 @@ export class Machine {
     };
   }
 
+  /** Undo the last Step or run-to instruction. An edit is not its own step. */
+  stepBack(): boolean {
+    const previous = this.history.pop();
+    if (previous === undefined) {
+      return false;
+    }
+    this.restore(previous);
+    return true;
+  }
+
+  canStepBack(): boolean {
+    return this.history.length > 0;
+  }
+
   sourceLine(address: number): number | undefined {
     return this.sourceLines.get(address & 0xffff);
+  }
+
+  hasSourceLine(line: number): boolean {
+    for (const value of this.sourceLines.values()) {
+      if (value === line) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Write a register as it is shown on screen. `main` and `alt` follow the
+   * Active and Shadow banks, so editing F changes the flags of that bank.
+   */
+  setVisibleRegister(key: string, value: number): boolean {
+    const regs = this.cpu.regs;
+    const byte = value & 0xff;
+    const wordValue = value & 0xffff;
+    if (key === "pc") {
+      regs.pc = wordValue;
+      regs.halted = 0;
+      this.halted = false;
+    } else if (key === "sp") {
+      regs.sp = wordValue;
+    } else if (key === "ix") {
+      regs.ix = wordValue;
+    } else if (key === "iy") {
+      regs.iy = wordValue;
+    } else if (key === "i") {
+      regs.i = byte;
+    } else if (key === "r") {
+      regs.r = byte;
+      regs.r7 = byte & 0x80;
+    } else {
+      const match = /^(main|alt)\.(a|f|af|b|c|bc|d|e|de|h|l|hl)$/.exec(key);
+      if (match === null) {
+        return false;
+      }
+      const side = match[1];
+      const part = match[2];
+      if (part === "a" || part === "f" || part === "af") {
+        writeBank(regs, "af", side === "main" ? this.afAltActive : !this.afAltActive, part, value);
+      } else if (part === "b" || part === "c" || part === "bc") {
+        writeBank(regs, "bc", side === "main" ? this.exxAltActive : !this.exxAltActive, part, value);
+      } else if (part === "d" || part === "e" || part === "de") {
+        writeBank(regs, "de", side === "main" ? this.exxAltActive : !this.exxAltActive, part, value);
+      } else {
+        writeBank(regs, "hl", side === "main" ? this.exxAltActive : !this.exxAltActive, part, value);
+      }
+    }
+    this.changed.add(key);
+    if (key.endsWith(".f")) {
+      const side = key.startsWith("alt.") ? "alt" : "main";
+      for (const flag of ["s", "z", "h", "pv", "n", "c"]) {
+        this.changed.add(`${side}.flag.${flag}`);
+      }
+    }
+    this.refreshNext();
+    return true;
+  }
+
+  setMemoryByte(address: number, value: number): void {
+    this.memory[address & 0xffff] = value & 0xff;
+    this.refreshNext();
   }
 
   byte(register: number): number {
@@ -242,6 +356,7 @@ export class Machine {
 
   snapshot(): MachineSnapshot {
     const regs = this.cpu.regs;
+    const consoleState = this.console.capture();
     return {
       pc: regs.pc & 0xffff,
       sp: regs.sp & 0xffff,
@@ -249,6 +364,13 @@ export class Machine {
       iy: regs.iy & 0xffff,
       i: regs.i & 0xff,
       r: regs.r & 0xff,
+      r7: regs.r7 & 0xff,
+      memptr: regs.memptr & 0xffff,
+      iff1: regs.iff1,
+      iff2: regs.iff2,
+      im: regs.im,
+      halted: regs.halted,
+      tStates: this.hal.tStateCount,
       af: regs.af & 0xffff,
       bc: regs.bc & 0xffff,
       de: regs.de & 0xffff,
@@ -260,7 +382,85 @@ export class Machine {
       afAltActive: this.afAltActive,
       exxAltActive: this.exxAltActive,
       memory: this.memory.slice(),
+      steps: this.steps,
+      lastInstruction: this.lastInstruction,
+      writes: this.writes.map((write) => ({ ...write })),
+      lastWriteAddress: this.lastWriteAddress,
+      lastAccessAddress: this.lastAccessAddress,
+      lastAccessKind: this.lastAccessKind,
+      consoleOutput: consoleState.output,
+      consoleInput: consoleState.input,
+      stackWords: [...this.stackWords.entries()].map(([address, word]) => [address, { ...word }]),
+      stackTouched: [...this.stackTouched],
+      changed: [...this.changed],
     };
+  }
+
+  private restore(previous: MachineSnapshot): void {
+    const regs = this.cpu.regs;
+    regs.pc = previous.pc;
+    regs.sp = previous.sp;
+    regs.ix = previous.ix;
+    regs.iy = previous.iy;
+    regs.i = previous.i;
+    regs.r = previous.r;
+    regs.r7 = previous.r7;
+    regs.memptr = previous.memptr;
+    regs.iff1 = previous.iff1;
+    regs.iff2 = previous.iff2;
+    regs.im = previous.im;
+    regs.halted = previous.halted;
+    regs.af = previous.af;
+    regs.bc = previous.bc;
+    regs.de = previous.de;
+    regs.hl = previous.hl;
+    regs.afPrime = previous.afPrime;
+    regs.bcPrime = previous.bcPrime;
+    regs.dePrime = previous.dePrime;
+    regs.hlPrime = previous.hlPrime;
+    this.hal.tStateCount = previous.tStates;
+    this.afAltActive = previous.afAltActive;
+    this.exxAltActive = previous.exxAltActive;
+    this.memory.set(previous.memory);
+    this.steps = previous.steps;
+    this.lastInstruction = previous.lastInstruction;
+    this.writes = previous.writes.map((write) => ({ ...write }));
+    this.lastWriteAddress = previous.lastWriteAddress;
+    this.lastAccessAddress = previous.lastAccessAddress;
+    this.lastAccessKind = previous.lastAccessKind;
+    this.halted = previous.halted !== 0;
+    this.console.restore({ output: previous.consoleOutput, input: previous.consoleInput });
+    this.stackWords.clear();
+    for (const [address, word] of previous.stackWords) {
+      this.stackWords.set(address, { ...word });
+    }
+    this.stackTouched.clear();
+    for (const address of previous.stackTouched) {
+      this.stackTouched.add(address);
+    }
+    this.changed.clear();
+    for (const key of previous.changed) {
+      this.changed.add(key);
+    }
+    this.refreshNext();
+  }
+
+  private noteOperandAccess(fetchCount: number): void {
+    let reads = 0;
+    let last: { kind: "read" | "write"; address: number } | undefined;
+    for (const access of this.accesses) {
+      if (access.kind === "read") {
+        reads += 1;
+        if (reads <= fetchCount) {
+          continue;
+        }
+      }
+      last = access;
+    }
+    if (last !== undefined) {
+      this.lastAccessAddress = last.address;
+      this.lastAccessKind = last.kind;
+    }
   }
 
   private readyOrigin(): number {
@@ -272,6 +472,7 @@ export class Machine {
     const next = value & 0xff;
     if (this.recording) {
       this.recorded.push({ address: location, previous: this.memory[location], value: next });
+      this.accesses.push({ kind: "write", address: location });
     }
     this.memory[location] = next;
   }
@@ -294,6 +495,33 @@ export class Machine {
     keys.set("r", regs.r & 0xff);
     return keys;
   }
+}
+
+function writeBank(
+  regs: {
+    af: number;
+    afPrime: number;
+    bc: number;
+    bcPrime: number;
+    de: number;
+    dePrime: number;
+    hl: number;
+    hlPrime: number;
+  },
+  pair: "af" | "bc" | "de" | "hl",
+  prime: boolean,
+  part: string,
+  value: number,
+): void {
+  const field = prime ? `${pair}Prime` as const : pair;
+  const current = regs[field] & 0xffff;
+  const highPart = part === "a" || part === "b" || part === "d" || part === "h";
+  let next = value & 0xffff;
+  if (part.length === 1) {
+    const byte = value & 0xff;
+    next = highPart ? ((byte << 8) | (current & 0xff)) & 0xffff : ((current & 0xff00) | byte) & 0xffff;
+  }
+  regs[field] = next;
 }
 
 function putBank(keys: Map<string, number>, name: string, bank: RegisterBank): void {

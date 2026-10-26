@@ -132,6 +132,8 @@ function assertBundle(code) {
     "logic.asm",
     "arithmetic.asm",
     "DAA uses this to adjust BCD.",
+    "Step back",
+    "Run to this line",
   ]) {
     if (!code.includes(needle)) {
       throw new Error(`bundle missing ${JSON.stringify(needle)}`);
@@ -262,6 +264,8 @@ function assertPlayBundle(code) {
     "motion-pause",
     "z80debug.animationSpeed",
     "DAA uses this to adjust BCD.",
+    "Step back",
+    "Run to this line",
   ]) {
     if (!code.includes(needle)) {
       throw new Error(`play bundle missing ${JSON.stringify(needle)}`);
