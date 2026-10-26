@@ -1,3 +1,4 @@
+import bits from "../examples/bits.asm";
 import consoleEcho from "../examples/console-echo.asm";
 import consoleExample from "../examples/console.asm";
 import exchange from "../examples/exchange.asm";
@@ -24,6 +25,7 @@ export const EXAMPLES: readonly ExampleProgram[] = [
   { id: "exchange", label: "Exchange", filename: "exchange.asm", source: exchange },
   { id: "stack", label: "Stack", filename: "stack.asm", source: stack },
   { id: "shifts", label: "Shifts", filename: "shifts.asm", source: shifts },
+  { id: "bits", label: "Bits", filename: "bits.asm", source: bits },
   { id: "table", label: "Table", filename: "table.asm", source: table },
 ];
 

@@ -23,6 +23,7 @@ import {
   saveWithPicker,
   writeHandle,
 } from "./files";
+import { appendFlagParts, FLAG_BITS } from "./flags";
 import { Machine, type RegisterBank } from "./machine";
 import { paintStackPane } from "./stack";
 
@@ -31,15 +32,6 @@ const SOURCE_LINE_HEIGHT = 20;
 const UNTITLED = "Untitled";
 
 let detachChrome: (() => void) | undefined;
-
-const FLAG_BITS: { key: string; label: string; mask: number }[] = [
-  { key: "s", label: "S", mask: 0x80 },
-  { key: "z", label: "Z", mask: 0x40 },
-  { key: "h", label: "H", mask: 0x10 },
-  { key: "pv", label: "P/V", mask: 0x04 },
-  { key: "n", label: "N", mask: 0x02 },
-  { key: "c", label: "C", mask: 0x01 },
-];
 
 function readDisplayFormat(): DisplayFormat {
   try {
@@ -733,14 +725,17 @@ export function mount(root: HTMLElement): void {
     for (const flag of FLAG_BITS) {
       const bit = document.createElement("span");
       bit.className = "flag";
-      bit.textContent = flag.label;
-      bit.dataset.set = (flags & flag.mask) !== 0 ? "1" : "0";
-      if ((flags & flag.mask) !== 0) {
+      bit.dataset.flag = flag.key;
+      bit.dataset.side = prefix;
+      const on = (flags & flag.mask) !== 0;
+      bit.dataset.set = on ? "1" : "0";
+      if (on) {
         bit.classList.add("set");
       }
       if (machine.changed.has(`${prefix}.flag.${flag.key}`)) {
         bit.classList.add("changed");
       }
+      appendFlagParts(bit, flag.key, on);
       row.append(bit);
     }
     return row;

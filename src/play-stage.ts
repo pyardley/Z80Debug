@@ -7,6 +7,7 @@ import {
   type Anchor,
   type MotionPlan,
   type RegName,
+  type BitMotion,
   type ShiftMotion,
   type ShiftTrack,
   type Travel,
@@ -73,7 +74,7 @@ export class MotionStage {
     onSettled?: () => void;
   }): void {
     const generation = this.generation;
-    const duration = input.plan.type === "shift" ? SHIFT_MS : MOTION_MS;
+    const duration = input.plan.type === "shift" || input.plan.type === "bit" ? SHIFT_MS : MOTION_MS;
     let closed = false;
     this.complete = () => {
       if (closed || generation !== this.generation) {
@@ -97,6 +98,8 @@ export class MotionStage {
       }
     } else if (input.plan.type === "shift") {
       this.flyShift(input.plan, input.banks);
+    } else if (input.plan.type === "bit") {
+      this.flyBitOp(input.plan, input.banks);
     }
     if (input.stackMark !== undefined) {
       this.slideStack(input.stackMark.from, input.stackMark.live);
@@ -283,6 +286,114 @@ export class MotionStage {
     this.animate(chip, frames, SHIFT_MS, "linear");
   }
 
+  private flyBitOp(plan: BitMotion, banks: Banks): void {
+    const laid = this.bitLayout(plan.anchor, banks);
+    this.dim(plan.anchor, banks);
+    const chosen = 7 - plan.bit;
+    const generation = this.generation;
+    for (let slot = 0; slot < 8; slot++) {
+      const value = ((plan.before >> (7 - slot)) & 1) as 0 | 1;
+      const chip = this.makeBit(value);
+      chip.dataset.from = "bit";
+      chip.dataset.fromSlot = String(slot);
+      chip.dataset.to = "bit";
+      chip.dataset.toSlot = String(slot);
+      chip.dataset.op = plan.op;
+      chip.dataset.bit = String(plan.bit);
+      const home = laid.slotAt(slot);
+      const frames = [
+        { transform: `translate(${laid.cellAt.x}px, ${laid.cellAt.y}px) scale(0.45)`, opacity: 0.2 },
+        { transform: `translate(${home.x}px, ${home.y}px) scale(1.06)`, opacity: 1, offset: 0.28 },
+        { transform: `translate(${home.x}px, ${home.y}px) scale(${slot === chosen ? 1.2 : 1})`, opacity: 1, offset: 0.55 },
+        { transform: `translate(${home.x}px, ${home.y}px) scale(1)`, opacity: 1 },
+      ];
+      if (slot === chosen) {
+        chip.classList.add("chosen");
+        if (plan.op !== "bit") {
+          const next: 0 | 1 = plan.op === "set" ? 1 : 0;
+          this.timers.push(window.setTimeout(() => {
+            if (generation !== this.generation) {
+              return;
+            }
+            chip.dataset.value = String(next);
+            chip.textContent = String(next);
+          }, Math.round(SHIFT_MS * 0.5)));
+        }
+      }
+      this.animate(chip, frames, SHIFT_MS, "linear");
+    }
+    if (plan.op !== "bit") {
+      return;
+    }
+    const tested = ((plan.before >> plan.bit) & 1) as 0 | 1;
+    const opposite: 0 | 1 = tested === 0 ? 1 : 0;
+    const link = this.makeBit(opposite);
+    link.dataset.from = "bit";
+    link.dataset.fromSlot = String(chosen);
+    link.dataset.to = "z";
+    link.dataset.op = "bit";
+    const zeroBox = boxOf(this.flagElement(banks, "z"));
+    const zeroAt = zeroBox === undefined
+      ? { x: laid.box.left + laid.box.width + 36, y: laid.box.top }
+      : {
+        x: zeroBox.left + zeroBox.width / 2 - 14,
+        y: zeroBox.top + zeroBox.height / 2 - 14,
+      };
+    const home = laid.slotAt(chosen);
+    this.animate(link, [
+      { transform: `translate(${home.x}px, ${home.y}px) scale(1)`, opacity: 0 },
+      { transform: `translate(${home.x}px, ${home.y}px) scale(1)`, opacity: 1, offset: 0.42 },
+      { transform: `translate(${zeroAt.x}px, ${zeroAt.y}px) scale(1)`, opacity: 1, offset: 0.8 },
+      { transform: `translate(${zeroAt.x}px, ${zeroAt.y}px) scale(1)`, opacity: 1 },
+    ], SHIFT_MS, "linear");
+    this.timers.push(window.setTimeout(() => {
+      if (generation !== this.generation) {
+        return;
+      }
+      this.showFlag(banks, "z", plan.zeroAfter);
+    }, Math.round(SHIFT_MS * 0.8)));
+  }
+
+  private bitLayout(anchor: Anchor, banks: Banks): {
+    box: Box;
+    cellAt: { x: number; y: number };
+    slotAt: (slot: number) => { x: number; y: number };
+  } {
+    const box = this.anchorBox(anchor, banks, undefined) ?? { left: 80, top: 180, width: 40, height: 28 };
+    const bit = 28;
+    const gap = 6;
+    const rowWidth = 8 * bit + 7 * gap;
+    const viewWidth = this.root.ownerDocument.defaultView?.innerWidth || 1200;
+    let rowLeft = box.left + box.width / 2 - rowWidth / 2;
+    rowLeft = Math.max(8, Math.min(rowLeft, viewWidth - rowWidth - 8));
+    let rowTop = box.top - bit - 16;
+    if (rowTop < 8) {
+      rowTop = box.top + box.height + 12;
+    }
+    return {
+      box,
+      cellAt: {
+        x: box.left + box.width / 2 - bit / 2,
+        y: box.top + box.height / 2 - bit / 2,
+      },
+      slotAt: (slot: number) => ({
+        x: rowLeft + slot * (bit + gap),
+        y: rowTop,
+      }),
+    };
+  }
+
+  private makeBit(value: 0 | 1): HTMLDivElement {
+    const chip = this.root.ownerDocument.createElement("div");
+    chip.className = "shift-bit";
+    chip.dataset.value = String(value);
+    chip.textContent = String(value);
+    chip.setAttribute("aria-hidden", "true");
+    this.root.ownerDocument.body.append(chip);
+    this.nodes.push(chip);
+    return chip;
+  }
+
   private showFlag(banks: Banks, key: string, on: boolean): void {
     const element = this.flagElement(banks, key);
     if (element === null) {
@@ -291,6 +402,10 @@ export class MotionStage {
     const was = element.dataset.set === "1";
     element.dataset.set = on ? "1" : "0";
     element.classList.toggle("set", on);
+    const state = element.querySelector(".flag-state");
+    if (state !== null) {
+      state.textContent = on ? "1" : "0";
+    }
     if (was !== on) {
       element.classList.add("changed");
     }
