@@ -411,6 +411,19 @@ describe("file menu", () => {
     );
     expect(root.querySelectorAll(".flag-bubble")).toHaveLength(12);
   });
+
+  it("runs AND and INC without the toy animation", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    chooseExample(root, "logic");
+    click(root, "#step");
+    click(root, "#step");
+    click(root, "#step");
+    expect(root.querySelector("[data-key='main.a']")?.textContent).toBe("00");
+    expect(document.querySelector(".logic-bit")).toBeNull();
+    expect(document.querySelector(".counter-wheel")).toBeNull();
+  });
 });
 
 function flush(): Promise<void> {

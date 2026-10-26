@@ -1,13 +1,19 @@
 import type { Banks } from "./machine";
 import { asciiGlyph, formatByte, formatWord, type DisplayFormat } from "./format";
 import {
+  COUNTER_MS,
+  LOGIC_MS,
   MOTION_MS,
   SHIFT_MS,
+  counterDigits,
+  logicRows,
   shiftTracks,
   type Anchor,
   type MotionPlan,
   type RegName,
   type BitMotion,
+  type CounterMotion,
+  type LogicMotion,
   type ShiftMotion,
   type ShiftTrack,
   type Travel,
@@ -74,7 +80,13 @@ export class MotionStage {
     onSettled?: () => void;
   }): void {
     const generation = this.generation;
-    const duration = input.plan.type === "shift" || input.plan.type === "bit" ? SHIFT_MS : MOTION_MS;
+    const duration = input.plan.type === "shift" || input.plan.type === "bit"
+      ? SHIFT_MS
+      : input.plan.type === "logic"
+        ? LOGIC_MS
+        : input.plan.type === "counter"
+          ? COUNTER_MS
+          : MOTION_MS;
     let closed = false;
     this.complete = () => {
       if (closed || generation !== this.generation) {
@@ -100,6 +112,10 @@ export class MotionStage {
       this.flyShift(input.plan, input.banks);
     } else if (input.plan.type === "bit") {
       this.flyBitOp(input.plan, input.banks);
+    } else if (input.plan.type === "logic") {
+      this.flyLogic(input.plan, input.format, input.banks, input.sourceRect);
+    } else if (input.plan.type === "counter") {
+      this.flyCounter(input.plan, input.format, input.banks);
     }
     if (input.stackMark !== undefined) {
       this.slideStack(input.stackMark.from, input.stackMark.live);
@@ -392,6 +408,264 @@ export class MotionStage {
     this.root.ownerDocument.body.append(chip);
     this.nodes.push(chip);
     return chip;
+  }
+
+  private flyLogic(plan: LogicMotion, format: DisplayFormat, banks: Banks, sourceRect: Box | undefined): void {
+    const rows = logicRows(plan.op, plan.left, plan.right);
+    const destBox = this.anchorBox(plan.dest, banks, sourceRect) ?? { left: 80, top: 220, width: 40, height: 28 };
+    const otherBox = this.anchorBox(plan.other, banks, sourceRect) ?? destBox;
+    this.dim(plan.dest, banks);
+    if (plan.other.type !== "source") {
+      this.dim(plan.other, banks);
+    }
+    const bit = 28;
+    const gap = 6;
+    const rowWidth = 8 * bit + 7 * gap;
+    const stackHeight = bit * 3 + gap * 2;
+    const padX = 16;
+    const padTop = 46;
+    const padBottom = 14;
+    const boardW = rowWidth + padX * 2;
+    const boardH = stackHeight + padTop + padBottom;
+    const view = this.root.ownerDocument.defaultView;
+    const viewWidth = view?.innerWidth || 1200;
+    const viewHeight = view?.innerHeight || 900;
+    let boardLeft = destBox.left + destBox.width / 2 - boardW / 2;
+    boardLeft = Math.max(12, Math.min(boardLeft, viewWidth - boardW - 12));
+    let boardTop = destBox.top - boardH - 10;
+    if (boardTop < 12) {
+      boardTop = destBox.top + destBox.height + 10;
+    }
+    if (boardTop + boardH > viewHeight - 8) {
+      boardTop = Math.max(12, viewHeight - boardH - 8);
+    }
+    const rowLeft = boardLeft + padX;
+    const rowTop = boardTop + padTop;
+    const board = this.root.ownerDocument.createElement("div");
+    board.className = "logic-board";
+    board.style.width = `${boardW}px`;
+    board.style.height = `${boardH}px`;
+    board.style.transform = `translate(${boardLeft}px, ${boardTop}px)`;
+    board.setAttribute("aria-hidden", "true");
+    this.root.ownerDocument.body.append(board);
+    this.nodes.push(board);
+    const slotAt = (row: number, slot: number): { x: number; y: number } => ({
+      x: rowLeft + slot * (bit + gap),
+      y: rowTop + row * (bit + gap),
+    });
+    const fromBox = (box: Box): { x: number; y: number } => ({
+      x: box.left + box.width / 2 - bit / 2,
+      y: box.top + box.height / 2 - bit / 2,
+    });
+    const origins = [fromBox(destBox), fromBox(otherBox)];
+    (["left", "right", "result"] as const).forEach((name, row) => {
+      rows[name].forEach((value, slot) => {
+        const chip = this.makeBit(value);
+        chip.className = "logic-bit";
+        chip.dataset.row = name;
+        chip.dataset.slot = String(slot);
+        chip.dataset.op = plan.op;
+        const home = slotAt(row, slot);
+        const origin = origins[row] ?? {
+          x: (slotAt(0, slot).x + slotAt(1, slot).x) / 2,
+          y: (slotAt(0, slot).y + slotAt(1, slot).y) / 2,
+        };
+        if (name === "result" && value !== rows.left[slot]) {
+          chip.classList.add("chosen");
+        }
+        const appear = 0.3 + slot * 0.04;
+        const frames = name === "result"
+          ? [
+            { transform: `translate(${origin.x}px, ${origin.y}px) scale(0.3)`, opacity: 0 },
+            { transform: `translate(${origin.x}px, ${origin.y}px) scale(0.3)`, opacity: 0, offset: Math.max(0.05, appear - 0.06) },
+            { transform: `translate(${home.x}px, ${home.y}px) scale(1.12)`, opacity: 1, offset: Math.min(0.78, appear + 0.08) },
+            { transform: `translate(${home.x}px, ${home.y}px) scale(1)`, opacity: 1, offset: 0.86 },
+            { transform: `translate(${home.x}px, ${home.y}px) scale(0.8)`, opacity: 0 },
+          ]
+          : [
+            { transform: `translate(${origin.x}px, ${origin.y}px) scale(0.45)`, opacity: 0.15 },
+            { transform: `translate(${home.x}px, ${home.y}px) scale(1.06)`, opacity: 1, offset: 0.22 },
+            { transform: `translate(${home.x}px, ${home.y}px) scale(1)`, opacity: 1, offset: 0.86 },
+            { transform: `translate(${home.x}px, ${home.y}px) scale(0.9)`, opacity: 0 },
+          ];
+        this.animate(chip, frames, LOGIC_MS, "linear");
+      });
+    });
+
+    const op = this.root.ownerDocument.createElement("div");
+    op.className = "logic-op";
+    op.dataset.op = plan.op;
+    op.textContent = plan.op.toUpperCase();
+    op.setAttribute("aria-hidden", "true");
+    this.root.ownerDocument.body.append(op);
+    this.nodes.push(op);
+    const opX = boardLeft + boardW / 2 - 36;
+    const opY = boardTop + 8;
+    this.animate(op, [
+      { transform: `translate(${opX}px, ${destBox.top}px) scale(0.6)`, opacity: 0 },
+      { transform: `translate(${opX}px, ${opY}px) scale(1)`, opacity: 1, offset: 0.18 },
+      { transform: `translate(${opX}px, ${opY}px) scale(1)`, opacity: 1, offset: 0.82 },
+      { transform: `translate(${opX}px, ${opY}px) scale(0.9)`, opacity: 0 },
+    ], LOGIC_MS, "linear");
+
+    const token = this.root.ownerDocument.createElement("div");
+    token.className = "logic-result";
+    token.dataset.value = String(plan.result);
+    token.dataset.format = format;
+    token.textContent = formatByte(plan.result, format);
+    token.style.opacity = "0";
+    token.setAttribute("aria-hidden", "true");
+    this.root.ownerDocument.body.append(token);
+    this.nodes.push(token);
+    const width = token.offsetWidth || 52;
+    const height = token.offsetHeight || 34;
+    const resultHome = slotAt(2, 3);
+    const start = { x: resultHome.x + bit / 2 - width / 2, y: resultHome.y };
+    const end = {
+      x: destBox.left + destBox.width / 2 - width / 2,
+      y: destBox.top + destBox.height / 2 - height / 2,
+    };
+    this.animate(token, [
+      { transform: `translate(${start.x}px, ${start.y}px) scale(0.4)`, opacity: 0 },
+      { transform: `translate(${start.x}px, ${start.y}px) scale(0.4)`, opacity: 0, offset: 0.7 },
+      { transform: `translate(${start.x}px, ${start.y - 8}px) scale(1.08)`, opacity: 1, offset: 0.82 },
+      { transform: `translate(${end.x}px, ${end.y}px) scale(1)`, opacity: 1 },
+    ], LOGIC_MS, "linear");
+  }
+
+  private flyCounter(plan: CounterMotion, format: DisplayFormat, banks: Banks): void {
+    const box = this.anchorBox(plan.anchor, banks, undefined) ?? { left: 80, top: 220, width: 48, height: 28 };
+    this.dim(plan.anchor, banks);
+    this.dimCompanions(plan, banks);
+    const digits = counterDigits(plan.before, plan.after, format, plan.width, plan.dir);
+    const count = digits.wheels.length;
+    const digitW = count > 8 ? 18 : 42;
+    const digitH = count > 8 ? 32 : 56;
+    const gap = count > 8 ? 3 : 6;
+    const rowWidth = count * digitW + Math.max(0, count - 1) * gap;
+    const padX = 16;
+    const padTop = 44;
+    const padBottom = 14;
+    const boardW = rowWidth + padX * 2;
+    const boardH = digitH + padTop + padBottom;
+    const view = this.root.ownerDocument.defaultView;
+    const viewWidth = view?.innerWidth || 1200;
+    const viewHeight = view?.innerHeight || 900;
+    let boardLeft = box.left + box.width / 2 - boardW / 2;
+    boardLeft = Math.max(12, Math.min(boardLeft, viewWidth - boardW - 12));
+    let boardTop = box.top - boardH - 28;
+    if (boardTop < 12) {
+      boardTop = box.top + box.height + 12;
+    }
+    if (boardTop + boardH > viewHeight - 8) {
+      boardTop = Math.max(12, viewHeight - boardH - 8);
+    }
+    const rowLeft = boardLeft + padX;
+    const rowTop = boardTop + padTop;
+    const board = this.root.ownerDocument.createElement("div");
+    board.className = "counter-board";
+    board.style.width = `${boardW}px`;
+    board.style.height = `${boardH}px`;
+    board.style.transform = `translate(${boardLeft}px, ${boardTop}px)`;
+    board.setAttribute("aria-hidden", "true");
+    this.root.ownerDocument.body.append(board);
+    this.nodes.push(board);
+    const label = this.root.ownerDocument.createElement("div");
+    label.className = "counter-op";
+    label.dataset.dir = plan.dir;
+    label.textContent = plan.dir.toUpperCase();
+    label.setAttribute("aria-hidden", "true");
+    this.root.ownerDocument.body.append(label);
+    this.nodes.push(label);
+    label.style.transform = `translate(${boardLeft + boardW / 2 - 36}px, ${boardTop + 8}px)`;
+    const offsets = Array.from({ length: count }, () => 0);
+    let wait = 0;
+    for (let index = count - 1; index >= 0; index -= 1) {
+      offsets[index] = wait;
+      if (digits.wheels[index]?.turns) {
+        wait += 0.16;
+      }
+    }
+    const rollSpan = 0.34;
+    const scale = wait + rollSpan > 0.92 ? 0.92 / (wait + rollSpan) : 1;
+    const roll = this.root.ownerDocument.createElement("div");
+    roll.className = "counter-roll";
+    roll.dataset.dir = plan.dir;
+    roll.dataset.format = format;
+    roll.dataset.from = digits.from;
+    roll.dataset.to = digits.to;
+    roll.setAttribute("aria-hidden", "true");
+    this.root.ownerDocument.body.append(roll);
+    this.nodes.push(roll);
+
+    digits.wheels.forEach((wheel, slot) => {
+      const node = this.root.ownerDocument.createElement("div");
+      node.className = "counter-wheel";
+      node.dataset.slot = String(slot);
+      node.dataset.from = wheel.from;
+      node.dataset.to = wheel.to;
+      node.dataset.turns = wheel.turns ? "1" : "0";
+      node.dataset.dir = plan.dir;
+      node.style.width = `${digitW}px`;
+      node.style.height = `${digitH}px`;
+      const strip = this.root.ownerDocument.createElement("div");
+      strip.className = "counter-strip";
+      const path = plan.dir === "dec" ? [...wheel.path].reverse() : wheel.path;
+      for (const glyph of path) {
+        const cell = this.root.ownerDocument.createElement("span");
+        cell.className = "counter-glyph";
+        cell.textContent = glyph;
+        cell.style.height = `${digitH}px`;
+        strip.append(cell);
+      }
+      node.append(strip);
+      roll.append(node);
+      const x = rowLeft + slot * (digitW + gap);
+      const y = rowTop;
+      node.style.transform = `translate(${x}px, ${y}px)`;
+      const distance = (path.length - 1) * digitH;
+      const startY = plan.dir === "dec" ? -distance : 0;
+      const endY = plan.dir === "dec" ? 0 : -distance;
+      const begin = (offsets[slot] ?? 0) * scale;
+      const finish = Math.min(0.98, begin + rollSpan * scale);
+      const hold = `translate(0px, ${startY}px)`;
+      const landed = `translate(0px, ${endY}px)`;
+      this.animate(strip, wheel.path.length <= 1
+        ? [{ transform: hold }, { transform: hold }]
+        : [
+          { transform: hold, offset: 0 },
+          { transform: hold, offset: begin },
+          { transform: landed, offset: finish },
+          { transform: landed, offset: 1 },
+        ], COUNTER_MS, "linear");
+    });
+  }
+
+  private dimCompanions(plan: CounterMotion, banks: Banks): void {
+    if (plan.anchor.type !== "reg") {
+      return;
+    }
+    const extra: RegName[] = [];
+    if (plan.width === 16) {
+      if (plan.anchor.name === "bc") {
+        extra.push("b", "c");
+      } else if (plan.anchor.name === "de") {
+        extra.push("d", "e");
+      } else if (plan.anchor.name === "hl") {
+        extra.push("h", "l");
+      }
+    } else if (plan.anchor.name === "a") {
+      extra.push("af");
+    } else if (plan.anchor.name === "b" || plan.anchor.name === "c") {
+      extra.push("bc");
+    } else if (plan.anchor.name === "d" || plan.anchor.name === "e") {
+      extra.push("de");
+    } else if (plan.anchor.name === "h" || plan.anchor.name === "l") {
+      extra.push("hl");
+    }
+    for (const name of extra) {
+      this.dim({ type: "reg", name }, banks);
+    }
   }
 
   private showFlag(banks: Banks, key: string, on: boolean): void {

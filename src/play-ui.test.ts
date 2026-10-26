@@ -46,7 +46,7 @@ describe("tabletop debugger", () => {
     vi.restoreAllMocks();
     document.body.replaceChildren();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    document.querySelectorAll(".travel-token, .flying-badge, .flying-stack-mark, .shift-bit").forEach((node) => node.remove());
+    document.querySelectorAll(".travel-token, .flying-badge, .flying-stack-mark, .shift-bit, .logic-bit, .logic-op, .logic-result, .logic-board, .counter-roll, .counter-board, .counter-op").forEach((node) => node.remove());
   });
 
   it("sends an immediate on a chip and keeps the register correct", () => {
@@ -356,6 +356,61 @@ describe("tabletop debugger", () => {
     expect(text(root, "[data-key='main.a']")).toBe("01");
     expect(root.querySelector("[data-flag='z'][data-side='main']")?.getAttribute("data-set")).toBe("0");
     expect(document.querySelector(".shift-bit")).toBeNull();
+  });
+
+  it("pops AND into both bytes and returns A in the selected format", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    chooseExample(root, "logic");
+    click(root, "#step");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "#last-instruction")).toBe("AND A,L");
+    expect(text(root, "[data-key='main.a']")).toBe("00");
+    expect(root.querySelector("[data-key='main.a']")?.getAttribute("style")).toContain("opacity");
+    expect(root.querySelector("[data-key='main.l']")?.getAttribute("style")).toContain("opacity");
+    const bits = (row: string) => Array.from(document.querySelectorAll(`.logic-bit[data-row='${row}']`), (node) => node.textContent).join("");
+    expect(bits("left")).toBe("11110000");
+    expect(bits("right")).toBe("00001111");
+    expect(bits("result")).toBe("00000000");
+    expect(document.querySelector(".logic-op")?.textContent).toBe("AND");
+    expect(document.querySelector(".logic-result")?.textContent).toBe("00");
+
+    click(root, "#format-decimal");
+    expect(text(root, "[data-key='main.a']")).toBe("  0");
+    expect(document.querySelector(".logic-bit")).toBeNull();
+  });
+
+  it("rolls INC digits up and still increments when motion is off", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const editor = editorValue(root);
+    editor.value = ["        ORG 0100H", "        LD A, 0FH", "        INC A", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("10");
+    expect(root.querySelector("[data-key='main.a']")?.getAttribute("style")).toContain("opacity");
+    const roll = document.querySelector(".counter-roll");
+    expect(roll?.getAttribute("data-dir")).toBe("inc");
+    expect(roll?.getAttribute("data-from")).toBe("0F");
+    expect(roll?.getAttribute("data-to")).toBe("10");
+    const wheels = Array.from(document.querySelectorAll(".counter-wheel"));
+    expect(wheels.map((wheel) => wheel.getAttribute("data-from"))).toEqual(["0", "F"]);
+    expect(wheels.map((wheel) => wheel.getAttribute("data-to"))).toEqual(["1", "0"]);
+    expect(wheels[1]?.getAttribute("data-turns")).toBe("1");
+
+    click(root, "#motion-toggle");
+    click(root, "#reset");
+    editor.value = ["        ORG 0100H", "        LD A, 0FH", "        DEC A", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("0E");
+    expect(document.querySelector(".counter-wheel")).toBeNull();
+    expect(document.querySelector(".logic-bit")).toBeNull();
   });
 });
 
