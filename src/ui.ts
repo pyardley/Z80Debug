@@ -25,6 +25,7 @@ import {
 } from "./files";
 import { appendFlagParts, FLAG_BITS } from "./flags";
 import { Machine, type RegisterBank } from "./machine";
+import { hexColumns, mountPanes } from "./panes";
 import { paintStackPane } from "./stack";
 
 const SOURCE_LINE_HEIGHT = 20;
@@ -32,6 +33,7 @@ const SOURCE_LINE_HEIGHT = 20;
 const UNTITLED = "Untitled";
 
 let detachChrome: (() => void) | undefined;
+let detachPanes: (() => void) | undefined;
 
 function readDisplayFormat(): DisplayFormat {
   try {
@@ -54,6 +56,7 @@ export function mount(root: HTMLElement): void {
   let format = readDisplayFormat();
   let lookAddress: number | undefined;
   let followWrite = true;
+  let dumpColumns = 16;
   const stackWindow: { top: number | undefined } = { top: undefined };
 
   const exampleOptions = EXAMPLES.map((example) => {
@@ -147,6 +150,7 @@ export function mount(root: HTMLElement): void {
         <p id="source-pointer" class="source-pointer" role="status" aria-live="polite"></p>
         <div id="errors" class="errors" role="status"></div>
       </section>
+      <div class="split split-source" role="separator" aria-orientation="vertical" aria-label="Resize source" tabindex="0"></div>
       <section class="cpu-pane">
         <div id="status" class="status"></div>
         <div id="instruction" class="instruction"></div>
@@ -155,6 +159,7 @@ export function mount(root: HTMLElement): void {
       </section>
     </div>
     </div>
+    <div class="split split-memory" role="separator" aria-orientation="vertical" aria-label="Resize memory" tabindex="0"></div>
     <aside class="memory-pane" aria-label="Memory">
       <div>
         <div class="pane-head"><h2>Memory around PC</h2></div>
@@ -320,6 +325,10 @@ export function mount(root: HTMLElement): void {
     },
   );
 
+  detachPanes?.();
+  detachPanes = mountPanes(root, () => {
+    refreshDumpColumns();
+  }).detach;
   render();
 
   function render(): void {
@@ -757,9 +766,24 @@ export function mount(root: HTMLElement): void {
     );
   }
 
+  function refreshDumpColumns(): void {
+    const host = required<HTMLElement>(root, "#memory-pc");
+    const next = columnsFor(host);
+    if (next !== dumpColumns) {
+      dumpColumns = next;
+      paintMemory();
+    }
+  }
+
+  function columnsFor(host: HTMLElement): number {
+    return format === "hex" ? hexColumns(host, dumpColumns === 8 ? 8 : 16) : bytesPerRow(format);
+  }
+
   function paintMemory(): void {
+    const pcHost = required<HTMLElement>(root, "#memory-pc");
+    dumpColumns = columnsFor(pcHost);
     const pc = machine.cpu.regs.pc & 0xffff;
-    paintDump(required<HTMLElement>(root, "#memory-pc"), pc, true);
+    paintDump(pcHost, pc, true);
     const focusTitle = required<HTMLElement>(root, "#memory-focus-title");
     let focus = 0;
     if (!followWrite && lookAddress !== undefined) {
@@ -792,7 +816,7 @@ export function mount(root: HTMLElement): void {
 
   function paintDump(host: HTMLElement, center: number, markPc: boolean): void {
     host.replaceChildren();
-    const width = bytesPerRow(format);
+    const width = dumpColumns;
     const rows = 4;
     const aligned = center & ~(width - 1);
     let start = (aligned - width) & 0xffff;
