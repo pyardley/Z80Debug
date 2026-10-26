@@ -15,6 +15,37 @@ export const LOGIC_MS = 1200;
 /** Roll the digits that are on screen, then show the register again. */
 export const COUNTER_MS = 1100;
 
+/** Playback rate for every toy animation. 1 is the pace the page opens with. */
+export const SPEED_STORAGE_KEY = "z80debug.animationSpeed";
+export const SPEED_MIN = 0.25;
+export const SPEED_MAX = 2;
+export const SPEED_DEFAULT = 1;
+
+export function clampSpeed(value: number): number {
+  if (!Number.isFinite(value)) {
+    return SPEED_DEFAULT;
+  }
+  const clamped = Math.min(SPEED_MAX, Math.max(SPEED_MIN, value));
+  return Math.round(clamped * 100) / 100;
+}
+
+/** How long a built-in duration lasts at this rate. 0.25× takes four times as long. */
+export function scaledMs(base: number, rate: number): number {
+  return Math.round(base / clampSpeed(rate));
+}
+
+export function loadSpeed(storage: Pick<Storage, "getItem">): number {
+  const stored = storage.getItem(SPEED_STORAGE_KEY);
+  if (stored === null || stored.trim() === "") {
+    return SPEED_DEFAULT;
+  }
+  return clampSpeed(Number(stored));
+}
+
+export function saveSpeed(storage: Pick<Storage, "setItem">, rate: number): void {
+  storage.setItem(SPEED_STORAGE_KEY, String(clampSpeed(rate)));
+}
+
 export type ShiftKind = "rlc" | "rrc" | "rl" | "rr" | "sla" | "sra" | "sll" | "srl";
 
 export interface ShiftTrack {

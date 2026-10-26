@@ -423,6 +423,7 @@ describe("file menu", () => {
     expect(root.querySelector("[data-key='main.a']")?.textContent).toBe("00");
     expect(document.querySelector(".logic-bit")).toBeNull();
     expect(document.querySelector(".counter-wheel")).toBeNull();
+    expect(root.querySelector("#motion-speed")).toBeNull();
   });
 });
 

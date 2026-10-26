@@ -3,10 +3,15 @@ import { exampleById } from "./examples";
 import { Machine } from "./machine";
 import {
   captureMotionBase,
+  clampSpeed,
   counterDigits,
+  loadSpeed,
   logicRows,
   planAfterStep,
   planMotion,
+  saveSpeed,
+  scaledMs,
+  SHIFT_MS,
   shiftTracks,
   type BitMotion,
   type CounterMotion,
@@ -522,6 +527,31 @@ function logicNamed(seen: { mnemonic: string; plan: MotionPlan }[], mnemonic: st
   expect(step?.plan.type).toBe("logic");
   return step?.plan as LogicMotion;
 }
+
+describe("animation speed", () => {
+  it("keeps 1× as the built-in pace and stretches or shortens every duration", () => {
+    expect(clampSpeed(Number.NaN)).toBe(1);
+    expect(clampSpeed(0)).toBe(0.25);
+    expect(clampSpeed(9)).toBe(2);
+    expect(scaledMs(SHIFT_MS, 1)).toBe(SHIFT_MS);
+    expect(scaledMs(520, 0.25)).toBe(2080);
+    expect(scaledMs(900, 2)).toBe(450);
+    expect(scaledMs(1100, 0.25)).toBe(4400);
+    expect(scaledMs(1200, 2)).toBe(600);
+    const storage = new Map<string, string>();
+    const memory = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+    };
+    expect(loadSpeed(memory)).toBe(1);
+    saveSpeed(memory, 0.25);
+    expect(loadSpeed(memory)).toBe(0.25);
+    saveSpeed(memory, 4);
+    expect(loadSpeed(memory)).toBe(2);
+  });
+});
 
 describe("logical operations", () => {
   it("combines each bit of AND, OR, and XOR", () => {

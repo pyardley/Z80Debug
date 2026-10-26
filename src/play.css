@@ -183,6 +183,37 @@ h3 {
   align-items: center;
 }
 
+.speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.22rem 0.7rem;
+  background: linear-gradient(180deg, #fff8ec, #f0ddc2);
+  border: 2px solid #6b4426;
+  border-radius: 999px;
+  box-shadow: 0 2px 0 #4a2c16;
+  font-weight: 700;
+  color: #2a180f;
+}
+
+.speed-name, #motion-speed-readout {
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+#motion-speed {
+  width: 7.2rem;
+  margin: 0;
+  accent-color: #1f4d32;
+  cursor: pointer;
+}
+
+#motion-speed-readout {
+  min-width: 3.2rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .format-label, .hint, .flag-caption, .example-label, .insn-label {
   color: #6b5340;
   font-size: 0.78rem;

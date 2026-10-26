@@ -7,6 +7,7 @@ import {
   SHIFT_MS,
   counterDigits,
   logicRows,
+  scaledMs,
   shiftTracks,
   type Anchor,
   type MotionPlan,
@@ -36,6 +37,8 @@ const EXX_REGS = new Set<RegName>(["b", "c", "d", "e", "h", "l", "bc", "de", "hl
 
 export class MotionStage {
   private generation = 0;
+  /** 1 keeps the built-in pace. Lower rates stretch every animation. */
+  private rate = 1;
   private animations: Animation[] = [];
   private timers: number[] = [];
   private nodes: HTMLElement[] = [];
@@ -78,15 +81,17 @@ export class MotionStage {
     swap?: BadgeLift;
     stackMark?: { from: Box; live: HTMLElement };
     onSettled?: () => void;
+    rate?: number;
   }): void {
     const generation = this.generation;
-    const duration = input.plan.type === "shift" || input.plan.type === "bit"
+    this.rate = input.rate ?? 1;
+    const duration = this.scaled(input.plan.type === "shift" || input.plan.type === "bit"
       ? SHIFT_MS
       : input.plan.type === "logic"
         ? LOGIC_MS
         : input.plan.type === "counter"
           ? COUNTER_MS
-          : MOTION_MS;
+          : MOTION_MS);
     let closed = false;
     this.complete = () => {
       if (closed || generation !== this.generation) {
@@ -99,7 +104,7 @@ export class MotionStage {
     };
     const safety = window.setTimeout(() => {
       this.complete?.();
-    }, duration + 120);
+    }, duration + this.scaled(120));
     this.timers.push(safety);
 
     if (input.plan.type === "swap" && input.swap !== undefined) {
@@ -242,7 +247,7 @@ export class MotionStage {
         return;
       }
       this.showFlag(banks, "c", plan.carryAfter);
-    }, Math.round(SHIFT_MS * 0.84)));
+    }, this.scaled(SHIFT_MS * 0.84)));
     if (plan.flagsFromResult) {
       this.timers.push(window.setTimeout(() => {
         if (generation !== this.generation) {
@@ -251,7 +256,7 @@ export class MotionStage {
         this.showFlag(banks, "s", plan.sign);
         this.showFlag(banks, "z", plan.zero);
         this.showFlag(banks, "pv", plan.parity);
-      }, Math.round(SHIFT_MS * 0.92)));
+      }, this.scaled(SHIFT_MS * 0.92)));
     }
   }
 
@@ -333,7 +338,7 @@ export class MotionStage {
             }
             chip.dataset.value = String(next);
             chip.textContent = String(next);
-          }, Math.round(SHIFT_MS * 0.5)));
+          }, this.scaled(SHIFT_MS * 0.5)));
         }
       }
       this.animate(chip, frames, SHIFT_MS, "linear");
@@ -367,7 +372,7 @@ export class MotionStage {
         return;
       }
       this.showFlag(banks, "z", plan.zeroAfter);
-    }, Math.round(SHIFT_MS * 0.8)));
+    }, this.scaled(SHIFT_MS * 0.8)));
   }
 
   private bitLayout(anchor: Anchor, banks: Banks): {
@@ -760,6 +765,10 @@ export class MotionStage {
     ]);
   }
 
+  private scaled(ms: number): number {
+    return scaledMs(ms, this.rate);
+  }
+
   private animate(
     element: HTMLElement,
     frames: Keyframe[],
@@ -770,7 +779,7 @@ export class MotionStage {
       return;
     }
     const animation = element.animate(frames, {
-      duration,
+      duration: this.scaled(duration),
       easing,
       fill: "forwards",
     });
