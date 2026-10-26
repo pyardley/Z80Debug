@@ -27,8 +27,12 @@ import { appendFlagParts, FLAG_BITS } from "./flags";
 import { Machine, type RegisterBank } from "./machine";
 import {
   captureMotionBase,
+  clampSpeed,
+  loadSpeed,
   motionMemoryAddress,
   planAfterStep,
+  saveSpeed,
+  SPEED_DEFAULT,
   swapGroup,
 } from "./motion";
 import { MotionStage, type BadgeLift } from "./play-stage";
@@ -46,6 +50,29 @@ function readDisplayFormat(): DisplayFormat {
   } catch {
     return "hex";
   }
+}
+
+function readMotionRate(): number {
+  try {
+    return loadSpeed(window.localStorage);
+  } catch {
+    return SPEED_DEFAULT;
+  }
+}
+
+function writeMotionRate(rate: number): number {
+  const next = clampSpeed(rate);
+  try {
+    saveSpeed(window.localStorage, next);
+  } catch {
+    // Safari throws when a file:// page touches localStorage. Keep this visit's choice.
+  }
+  return next;
+}
+
+function speedReadout(rate: number): string {
+  const text = clampSpeed(rate).toFixed(2).replace(/\.?0+$/, "");
+  return `${text}×`;
 }
 
 function writeDisplayFormat(format: DisplayFormat): void {
@@ -70,6 +97,7 @@ export function mount(root: HTMLElement): void {
   let spotlight: number | undefined;
   const stackWindow: { top: number | undefined } = { top: undefined };
   let motionOn = true;
+  let motionRate = readMotionRate();
   let flagHold: {
     side: "main" | "alt";
     carry?: boolean;
@@ -119,6 +147,11 @@ export function mount(root: HTMLElement): void {
           <button type="button" id="reset">Reset</button>
           <button type="button" id="step">Step</button>
           <button type="button" id="motion-toggle" aria-pressed="true">Motion on</button>
+          <label class="speed">
+            <span class="speed-name">Speed</span>
+            <input type="range" id="motion-speed" min="0.25" max="2" step="0.05" value="${motionRate}" aria-label="Animation speed" aria-valuemin="0.25" aria-valuemax="2" aria-valuenow="${motionRate}">
+            <span id="motion-speed-readout">${speedReadout(motionRate)}</span>
+          </label>
         </div>
         <div class="format" role="radiogroup" aria-label="Display format">
           <span class="format-label">Values</span>
@@ -260,6 +293,11 @@ export function mount(root: HTMLElement): void {
     motionOn = !motionOn;
     stopMotion();
     render();
+  });
+  required<HTMLInputElement>(root, "#motion-speed").addEventListener("input", () => {
+    const slider = required<HTMLInputElement>(root, "#motion-speed");
+    motionRate = writeMotionRate(Number(slider.value));
+    paintMotion();
   });
   required<HTMLButtonElement>(root, "#file-menu-button").addEventListener("click", () => {
     toggleMenu();
@@ -427,6 +465,7 @@ export function mount(root: HTMLElement): void {
         stackMark: stackMoved && markFrom !== undefined && markNow !== null
           ? { from: markFrom, live: markNow }
           : undefined,
+        rate: motionRate,
         onSettled: plan.type === "shift" || (plan.type === "bit" && plan.op === "bit")
           ? () => {
             flagHold = undefined;
@@ -687,6 +726,10 @@ export function mount(root: HTMLElement): void {
     const button = required<HTMLButtonElement>(root, "#motion-toggle");
     button.setAttribute("aria-pressed", motionOn ? "true" : "false");
     button.textContent = motionOn ? "Motion on" : "Motion off";
+    const slider = required<HTMLInputElement>(root, "#motion-speed");
+    slider.value = String(motionRate);
+    slider.setAttribute("aria-valuenow", String(motionRate));
+    required<HTMLElement>(root, "#motion-speed-readout").textContent = speedReadout(motionRate);
   }
 
   function paintConsole(): void {

@@ -136,8 +136,8 @@ function assertBundle(code) {
       throw new Error(`bundle missing ${JSON.stringify(needle)}`);
     }
   }
-  if (code.includes("logic-bit") || code.includes("counter-wheel")) {
-    throw new Error("plain bundle includes the toy logic or counter animation");
+  if (code.includes("logic-bit") || code.includes("counter-wheel") || code.includes("motion-speed") || code.includes("z80debug.animationSpeed")) {
+    throw new Error("plain bundle includes a toy animation or the speed control");
   }
 }
 
@@ -255,6 +255,8 @@ function assertPlayBundle(code) {
     "logic.asm",
     "logic-bit",
     "counter-wheel",
+    "motion-speed",
+    "z80debug.animationSpeed",
     "DAA uses this to adjust BCD.",
   ]) {
     if (!code.includes(needle)) {

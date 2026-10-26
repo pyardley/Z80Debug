@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exampleById } from "./examples";
+import { COUNTER_MS, MOTION_MS, scaledMs } from "./motion";
 import { mount } from "./play-ui";
 
 function click(root: ParentNode, selector: string): void {
@@ -412,7 +413,114 @@ describe("tabletop debugger", () => {
     expect(document.querySelector(".counter-wheel")).toBeNull();
     expect(document.querySelector(".logic-bit")).toBeNull();
   });
+
+  it("scales every animation from the speed slider and remembers the choice", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const slider = root.querySelector("#motion-speed");
+    expect(slider).toBeInstanceOf(HTMLInputElement);
+    if (!(slider instanceof HTMLInputElement)) {
+      return;
+    }
+    expect(slider.value).toBe("1");
+    expect(slider.min).toBe("0.25");
+    expect(slider.max).toBe("2");
+    expect(text(root, "#motion-speed-readout")).toBe("1×");
+    expect(root.querySelector("#motion-toggle")?.nextElementSibling).toBe(slider.parentElement);
+
+    const durations = captureDurations(() => {
+      chooseExample(root, "exchange");
+      click(root, "#step");
+    });
+    expect(durations).toContain(MOTION_MS);
+
+    slider.value = "0.25";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(text(root, "#motion-speed-readout")).toBe("0.25×");
+    expect(localStorage.getItem("z80debug.animationSpeed")).toBe("0.25");
+    click(root, "#reset");
+    const slow = captureDurations(() => {
+      click(root, "#step");
+    });
+    expect(slow).toContain(scaledMs(MOTION_MS, 0.25));
+    expect(Math.max(...slow)).toBeGreaterThan(Math.max(...durations));
+
+    const editor = editorValue(root);
+    editor.value = ["        ORG 0100H", "        LD A, 0FH", "        INC A", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    const rolled = captureDurations(() => {
+      click(root, "#step");
+    });
+    expect(rolled).toContain(scaledMs(COUNTER_MS, 0.25));
+
+    click(root, "#motion-toggle");
+    click(root, "#reset");
+    editor.value = ["        ORG 0100H", "        LD A, 0FH", "        INC A", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("10");
+    expect(document.querySelector(".counter-wheel")).toBeNull();
+  });
+
+  it("stays at 1× when localStorage throws", () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("storage blocked");
+    });
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const slider = root.querySelector("#motion-speed");
+    expect(slider).toBeInstanceOf(HTMLInputElement);
+    if (!(slider instanceof HTMLInputElement)) {
+      return;
+    }
+    expect(slider.value).toBe("1");
+    slider.value = "0.5";
+    expect(() => slider.dispatchEvent(new Event("input", { bubbles: true }))).not.toThrow();
+    expect(text(root, "#motion-speed-readout")).toBe("0.5×");
+  });
 });
+
+function captureDurations(run: () => void): number[] {
+  const durations: number[] = [];
+  const host = animateOwner();
+  const original = host.animate;
+  host.animate = function (this: Element, keyframes: Keyframe[] | PropertyIndexedKeyframes | null, options?: number | KeyframeAnimationOptions) {
+    const duration = typeof options === "number" ? options : options?.duration;
+    if (typeof duration === "number") {
+      durations.push(duration);
+    }
+    if (typeof original === "function") {
+      return original.call(this, keyframes, options);
+    }
+    return {
+      playState: "running",
+      cancel() {},
+      finish() {},
+      onfinish: null,
+    } as unknown as Animation;
+  };
+  try {
+    run();
+  } finally {
+    host.animate = original;
+  }
+  return durations;
+}
+
+function animateOwner(): { animate: Element["animate"] } {
+  let cursor: object | null = document.createElement("div");
+  while (cursor !== null) {
+    if (Object.prototype.hasOwnProperty.call(cursor, "animate")) {
+      return cursor as { animate: Element["animate"] };
+    }
+    cursor = Object.getPrototypeOf(cursor);
+  }
+  return Element.prototype;
+}
 
 function flush(): Promise<void> {
   return new Promise((resolve) => {
