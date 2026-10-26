@@ -17,7 +17,6 @@ import {
   scaledMs,
   SHIFT_MS,
   shiftTracks,
-  wordHalves,
   type ArithMotion,
   type BitMotion,
   type BranchMotion,
@@ -713,26 +712,35 @@ describe("increment and decrement wheels", () => {
 });
 
 describe("arithmetic pictures", () => {
-  it("steps a carry or borrow into the next column and leaves A alone for CP", () => {
-    const added = arithColumns("add", 0x0f, 0x01, false);
-    expect(added.map((column) => column.carryOut).join("")).toBe("11110000");
-    expect(arithResult(added)).toBe(0x10);
-    expect(arithColumns("adc", 0x0f, 0x00, true)[0]).toMatchObject({ carryIn: 1, sum: 0, carryOut: 1 });
-    expect(arithResult(arithColumns("sub", 0x10, 0x01, false))).toBe(0x0f);
-    expect(arithColumns("sbc", 0x00, 0x00, true).map((column) => column.sum).join("")).toBe("11111111");
-    expect(arithResult(arithColumns("cp", 0x10, 0x10, false))).toBe(0x00);
+  it("steps a carry or borrow into the next decimal digit and leaves A alone for CP", () => {
+    const added = arithColumns("add", 99, 1, false);
+    expect(added[0]).toMatchObject({ place: 0, left: 9, right: 1, digit: 0, carryIn: 0, carryOut: 1 });
+    expect(added[1]).toMatchObject({ place: 1, left: 9, right: 0, digit: 0, carryIn: 1, carryOut: 1 });
+    expect(added[2]).toMatchObject({ place: 2, left: 0, right: 0, digit: 1, carryIn: 1, carryOut: 0 });
+    expect(arithResult(added)).toBe(100);
+    expect(arithColumns("adc", 15, 0, true)[0]).toMatchObject({ carryIn: 1, digit: 6, carryOut: 0 });
+    expect(arithResult(arithColumns("sub", 16, 1, false))).toBe(15);
+    expect(arithColumns("sub", 100, 1, false)[0]).toMatchObject({ digit: 9, carryOut: 1 });
+    expect(arithColumns("sub", 100, 1, false)[1]).toMatchObject({ carryIn: 1, digit: 9, carryOut: 1 });
+    expect(arithColumns("sbc", 0, 0, true).map((column) => column.digit).join("")).toBe("999");
+    expect(arithResult(arithColumns("sbc", 0, 0, true))).toBe(999);
+    expect(arithResult(arithColumns("cp", 16, 16, false))).toBe(0);
+    const wide = arithColumns("add", 200, 200, false);
+    expect(wide.map((column) => column.digit).join("")).toBe("004");
+    expect(wide[2]?.carryOut).toBe(0);
+    expect(arithResult(wide)).toBe(400);
 
     const seen = trace(exampleById("arithmetic")?.source ?? "");
     const add = aluNamed(seen, "ADD A,0X01");
     expect(add).toMatchObject({
       op: "add", left: 0x0f, right: 0x01, result: 0x10, stored: true, other: { type: "source" },
     });
-    expect(add.columns[0]).toMatchObject({ bit: 0, carryOut: 1 });
-    expect(add.columns[3]).toMatchObject({ bit: 3, carryOut: 1 });
-    expect(add.columns[4]).toMatchObject({ bit: 4, carryIn: 1, sum: 1, carryOut: 0 });
+    expect(add.columns.map((column) => column.digit).join("")).toBe("610");
+    expect(add.columns[0]).toMatchObject({ place: 0, left: 5, right: 1, carryOut: 0 });
     expect(aluNamed(seen, "ADC A,L")).toMatchObject({
       op: "adc", left: 0x10, right: 0x01, result: 0x11, other: { type: "reg", name: "l" },
     });
+    expect(aluNamed(seen, "ADC A,L").columns[0]?.carryIn).toBe(0);
     expect(aluNamed(seen, "SUB A,(HL)")).toMatchObject({
       op: "sub", right: 0x01, result: 0x10, other: { type: "mem", address: 0xc001 },
     });
@@ -746,20 +754,48 @@ describe("arithmetic pictures", () => {
     expect(compare.flags.z).toBe(true);
     const compared = seen.find((item) => item.mnemonic === "CP (IY+0XFF)");
     expect((compared?.af ?? 0) >> 8).toBe(0x10);
+
+    const wrapped = trace(`
+      ORG 0100H
+      LD A, 0C8H
+      ADD A, 0C8H
+      HALT
+    `);
+    const overflow = aluNamed(wrapped, "ADD A,0XC8");
+    expect(overflow.result).toBe(0x90);
+    expect(arithResult(overflow.columns)).toBe(400);
+
+    const borrowed = trace(`
+      ORG 0100H
+      LD A, 00H
+      SCF
+      SBC A, 00H
+      HALT
+    `);
+    const sbc = aluNamed(borrowed, "SBC A,0X00");
+    expect(sbc.result).toBe(0xff);
+    expect(sbc.columns[0]).toMatchObject({ carryIn: 1, digit: 9, carryOut: 1 });
+    expect(arithResult(sbc.columns)).toBe(999);
   });
 
-  it("steps a carry from the low byte into the high byte", () => {
-    const [low, high] = wordHalves("add", 0x00ff, 0x0001, false);
-    expect(low).toMatchObject({ result: 0x00, carryOut: 1 });
-    expect(high).toMatchObject({ carryIn: 1, result: 0x01, carryOut: 0 });
-    const borrowed = wordHalves("sbc", 0x0100, 0x0001, false);
-    expect(borrowed[0]).toMatchObject({ result: 0xff, carryOut: 1 });
-    expect(borrowed[1]).toMatchObject({ carryIn: 1, result: 0x00 });
+  it("steps a carry or borrow into the next decimal digit of a word", () => {
+    const added = arithColumns("add", 99, 1, false, 5);
+    expect(added[0]).toMatchObject({ place: 0, digit: 0, carryOut: 1 });
+    expect(added[1]).toMatchObject({ place: 1, carryIn: 1, digit: 0, carryOut: 1 });
+    expect(added[2]).toMatchObject({ place: 2, carryIn: 1, digit: 1, carryOut: 0 });
+    expect(arithResult(added)).toBe(100);
+    const sum = arithColumns("add", 0x00ff, 0x0001, false, 5);
+    expect(sum.map((column) => column.digit).join("")).toBe("65200");
+    expect(sum.every((column) => column.carryOut === 0)).toBe(true);
+    const difference = arithColumns("sbc", 0x0100, 0x0001, false, 5);
+    expect(difference[0]).toMatchObject({ digit: 5, carryOut: 0 });
+    expect(arithResult(difference)).toBe(255);
 
     const seen = trace(exampleById("arithmetic")?.source ?? "");
     expect(wordNamed(seen, "ADD HL,BC")).toMatchObject({
       op: "add", dest: "hl", other: "bc", left: 0x00ff, right: 0x0001, result: 0x0100,
     });
+    expect(wordNamed(seen, "ADD HL,BC").columns[0]?.carryOut).toBe(0);
     expect(wordNamed(seen, "ADD IX,BC")).toMatchObject({
       op: "add", dest: "ix", other: "bc", left: 0x00ff, result: 0x0100,
     });
@@ -769,12 +805,12 @@ describe("arithmetic pictures", () => {
     expect(wordNamed(seen, "ADC HL,BC")).toMatchObject({
       op: "adc", dest: "hl", left: 0x0100, right: 0x0001, result: 0x0102,
     });
-    expect(wordNamed(seen, "ADC HL,BC").halves[0].carryIn).toBe(1);
+    expect(wordNamed(seen, "ADC HL,BC").columns[0]?.carryIn).toBe(1);
     expect(wordNamed(seen, "SBC HL,BC")).toMatchObject({
       op: "sbc", left: 0x0100, right: 0x0001, result: 0x00ff,
     });
-    expect(wordNamed(seen, "SBC HL,BC").halves[0].carryOut).toBe(1);
-    expect(wordNamed(seen, "SBC HL,BC").halves[1].carryIn).toBe(1);
+    expect(wordNamed(seen, "SBC HL,BC").columns[0]).toMatchObject({ digit: 5, carryOut: 0 });
+    expect(wordNamed(seen, "SBC HL,BC").columns[1]?.carryIn).toBe(0);
   });
 
   it("adjusts both hex digits of A from H, N, and C", () => {

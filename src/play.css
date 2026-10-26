@@ -710,7 +710,7 @@ textarea {
 .errors { margin-top: 0.4rem; color: #7a2e16; }
 .errors ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
 
-.shift-bit, .logic-bit, .alu-bit, .alu-carry, .word-carry, .nibble-chip {
+.shift-bit, .logic-bit, .alu-carry, .word-carry, .nibble-chip {
   position: fixed;
   left: 0;
   top: 0;
@@ -731,20 +731,44 @@ textarea {
   pointer-events: none;
 }
 
-.shift-bit[data-value="1"], .logic-bit[data-value="1"], .alu-bit[data-value="1"], .alu-carry, .word-carry[data-value="1"] {
+.shift-bit[data-value="1"], .logic-bit[data-value="1"], .alu-carry[data-value="1"], .word-carry[data-value="1"] {
   background: #ffe08a;
   border-color: #9c2f1a;
 }
 
-.alu-bit[data-row="result"],
 .logic-bit[data-row="result"] {
   background: #e7f6e4;
   border-color: #1f4d32;
 }
 
-.alu-bit[data-row="result"][data-value="1"],
 .logic-bit[data-row="result"][data-value="1"] {
   background: #b7e3a8;
+  border-color: #1f4d32;
+}
+
+.alu-bit {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 82;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: #fffaf2;
+  color: #140e08;
+  border: 3px solid #6b3e22;
+  border-radius: 8px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 800;
+  font-size: 22px;
+  line-height: 1;
+  box-shadow: 0 6px 0 rgba(60, 30, 10, 0.2);
+  pointer-events: none;
+}
+
+.alu-bit[data-row="result"] {
+  background: #e7f6e4;
   border-color: #1f4d32;
 }
 
@@ -841,30 +865,7 @@ textarea {
   pointer-events: none;
 }
 
-.word-byte {
-  position: fixed;
-  left: 0;
-  top: 0;
-  z-index: 83;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  background: #fffaf2;
-  color: #140e08;
-  border: 3px solid #6b3e22;
-  border-radius: 8px;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-weight: 800;
-  font-size: 14px;
-  pointer-events: none;
-}
-
-.word-byte[data-row="result"] {
-  background: #e7f6e4;
-  border-color: #1f4d32;
-}
-
-.alu-carry[data-kind="borrow"], .word-carry[data-kind="borrow"] {
+.alu-carry[data-kind="borrow"][data-value="1"], .word-carry[data-kind="borrow"][data-value="1"] {
   background: #f7d0c4;
   border-color: #9c2f1a;
 }

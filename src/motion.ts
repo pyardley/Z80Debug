@@ -15,10 +15,10 @@ export const LOGIC_MS = 1200;
 /** Roll the digits that are on screen, then show the register again. */
 export const COUNTER_MS = 1100;
 
-/** Pop both bytes, then step a carry or borrow from column to column. */
+/** Show both values as decimal digits, then step a carry or borrow to the next digit. */
 export const ALU_MS = 1400;
 
-/** Combine two words, then step a carry or borrow from the low byte into the high byte. */
+/** Show both words as decimal numbers, then step a carry or borrow to the next digit. */
 export const WORD_MS = 1300;
 
 /** Adjust the two hex digits of A from H, N, and C. */
@@ -143,12 +143,13 @@ export interface CounterWheel {
 export type ArithOp = "add" | "adc" | "sub" | "sbc" | "cp";
 
 export interface ArithColumn {
-  /** 0 is the least significant bit. Display slot 0 is bit 7. */
-  bit: number;
-  left: 0 | 1;
-  right: 0 | 1;
+  /** 0 is the ones place. Display slot 0 is the highest place. */
+  place: number;
+  left: number;
+  right: number;
   carryIn: 0 | 1;
-  sum: 0 | 1;
+  /** Schoolbook digit in this place. The register still keeps the CPU result. */
+  digit: number;
   carryOut: 0 | 1;
 }
 
@@ -177,14 +178,6 @@ export interface ArithMotion {
 
 export type WordOp = "add" | "adc" | "sbc";
 
-export interface WordHalf {
-  left: number;
-  right: number;
-  result: number;
-  carryIn: 0 | 1;
-  carryOut: 0 | 1;
-}
-
 export interface WordMotion {
   type: "word";
   op: WordOp;
@@ -193,8 +186,8 @@ export interface WordMotion {
   left: number;
   right: number;
   result: number;
-  /** Index 0 is the low byte. */
-  halves: [WordHalf, WordHalf];
+  /** Index 0 is the ones place. Five places cover 0–65535. */
+  columns: ArithColumn[];
   flags: FlagPicture;
 }
 
@@ -1046,47 +1039,34 @@ function logicKind(op: number): LogicOp | undefined {
   return undefined;
 }
 
-/** Eight columns, bit 0 first. A carry or borrow leaves each column for the next. */
-export function arithColumns(op: ArithOp, left: number, right: number, carryFlag: boolean): ArithColumn[] {
+/** Decimal places, ones first. A carry or borrow leaves each digit for the next. */
+export function arithColumns(
+  op: ArithOp | WordOp,
+  left: number,
+  right: number,
+  carryFlag: boolean,
+  places = 3,
+): ArithColumn[] {
   const subtract = op === "sub" || op === "sbc" || op === "cp";
   const useCarry = op === "adc" || op === "sbc";
   let carry: 0 | 1 = useCarry && carryFlag ? 1 : 0;
   const columns: ArithColumn[] = [];
-  for (let bit = 0; bit < 8; bit += 1) {
-    const l = ((left >> bit) & 1) as 0 | 1;
-    const r = ((right >> bit) & 1) as 0 | 1;
+  for (let place = 0; place < places; place += 1) {
+    const factor = 10 ** place;
+    const l = Math.floor(Math.abs(left) / factor) % 10;
+    const r = Math.floor(Math.abs(right) / factor) % 10;
     const total = subtract ? l - r - carry : l + r + carry;
-    const sum = (total & 1) as 0 | 1;
-    const carryOut: 0 | 1 = subtract ? (total < 0 ? 1 : 0) : (total > 1 ? 1 : 0);
-    columns.push({ bit, left: l, right: r, carryIn: carry, sum, carryOut });
+    const digit = total < 0 ? total + 10 : total % 10;
+    const carryOut: 0 | 1 = subtract ? (total < 0 ? 1 : 0) : (total >= 10 ? 1 : 0);
+    columns.push({ place, left: l, right: r, carryIn: carry, digit, carryOut });
     carry = carryOut;
   }
   return columns;
 }
 
+/** The number written by the decimal digits. A final carry is the next place, not part of this sum. */
 export function arithResult(columns: readonly ArithColumn[]): number {
-  return columns.reduce((result, column) => result | (column.sum << column.bit), 0) & 0xff;
-}
-
-/** Low byte first. carryOut of the low byte is carryIn of the high byte. */
-export function wordHalves(op: WordOp, left: number, right: number, carryFlag: boolean): [WordHalf, WordHalf] {
-  const subtract = op === "sbc";
-  let carry: 0 | 1 = (op === "adc" || op === "sbc") && carryFlag ? 1 : 0;
-  const halves: WordHalf[] = [];
-  for (let shift = 0; shift <= 8; shift += 8) {
-    const l = (left >> shift) & 0xff;
-    const r = (right >> shift) & 0xff;
-    const total = subtract ? l - r - carry : l + r + carry;
-    const carryOut: 0 | 1 = subtract ? (total < 0 ? 1 : 0) : (total > 0xff ? 1 : 0);
-    halves.push({ left: l, right: r, result: total & 0xff, carryIn: carry, carryOut });
-    carry = carryOut;
-  }
-  const low = halves[0];
-  const high = halves[1];
-  if (low === undefined || high === undefined) {
-    throw new Error("a word has two bytes");
-  }
-  return [low, high];
+  return columns.reduce((result, column) => result + column.digit * 10 ** column.place, 0);
 }
 
 /** The correction this emulator adds, or subtracts when N is set. */
@@ -1155,13 +1135,14 @@ function planArith(base: MotionBase, machine: Machine): ArithMotion | undefined 
       other = { type: "reg", name };
     }
   }
-  const columns = arithColumns(op, left, right, carryFlag);
+  const columns = arithColumns(op, left, right, carryFlag, 3);
+  const stored = (afBank.af >> 8) & 0xff;
   return {
     type: "alu",
     op,
     left,
     right,
-    result: arithResult(columns),
+    result: op === "cp" ? (left - right) & 0xff : stored,
     stored: op !== "cp",
     columns,
     other,
@@ -1217,7 +1198,7 @@ function planWord(base: MotionBase, machine: Machine): WordMotion | undefined {
   const after = activeWords(machine);
   const left = wordValue(dest, base);
   const right = wordValue(other, base);
-  const halves = wordHalves(op, left, right, (base.af & 0x01) !== 0);
+  const columns = arithColumns(op, left, right, (base.af & 0x01) !== 0, 5);
   const banks = machine.banks();
   const afBank = banks.main.afActive ? banks.main : banks.alternate;
   return {
@@ -1228,7 +1209,7 @@ function planWord(base: MotionBase, machine: Machine): WordMotion | undefined {
     left,
     right,
     result: wordValue(dest, after),
-    halves,
+    columns,
     flags: flagsOf(afBank.af),
   };
 }
