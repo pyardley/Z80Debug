@@ -2,9 +2,13 @@ import type { Banks } from "./machine";
 import { asciiGlyph, formatByte, formatWord, type DisplayFormat } from "./format";
 import {
   MOTION_MS,
+  SHIFT_MS,
+  shiftTracks,
   type Anchor,
   type MotionPlan,
   type RegName,
+  type ShiftMotion,
+  type ShiftTrack,
   type Travel,
 } from "./motion";
 
@@ -29,11 +33,13 @@ export class MotionStage {
   private timers: number[] = [];
   private nodes: HTMLElement[] = [];
   private hidden: HTMLElement[] = [];
+  private complete: (() => void) | undefined;
 
   constructor(private readonly root: HTMLElement) {}
 
   finish(): void {
     this.generation += 1;
+    this.complete = undefined;
     const animations = this.animations;
     this.animations = [];
     for (const animation of animations) {
@@ -64,13 +70,23 @@ export class MotionStage {
     sourceRect?: Box;
     swap?: BadgeLift;
     stackMark?: { from: Box; live: HTMLElement };
+    onSettled?: () => void;
   }): void {
     const generation = this.generation;
-    const safety = window.setTimeout(() => {
-      if (generation === this.generation) {
-        this.finish();
+    const duration = input.plan.type === "shift" ? SHIFT_MS : MOTION_MS;
+    let closed = false;
+    this.complete = () => {
+      if (closed || generation !== this.generation) {
+        return;
       }
-    }, MOTION_MS + 120);
+      closed = true;
+      const settled = input.onSettled;
+      this.finish();
+      settled?.();
+    };
+    const safety = window.setTimeout(() => {
+      this.complete?.();
+    }, duration + 120);
     this.timers.push(safety);
 
     if (input.plan.type === "swap" && input.swap !== undefined) {
@@ -79,6 +95,8 @@ export class MotionStage {
       for (const move of input.plan.moves) {
         this.flyToken(move, input.format, input.banks, input.sourceRect);
       }
+    } else if (input.plan.type === "shift") {
+      this.flyShift(input.plan, input.banks);
     }
     if (input.stackMark !== undefined) {
       this.slideStack(input.stackMark.from, input.stackMark.live);
@@ -166,16 +184,134 @@ export class MotionStage {
     ]);
   }
 
+  private flyShift(plan: ShiftMotion, banks: Banks): void {
+    const box = this.anchorBox(plan.anchor, banks, undefined) ?? { left: 80, top: 180, width: 40, height: 28 };
+    this.dim(plan.anchor, banks);
+    const tracks = shiftTracks(plan.kind, plan.before, plan.carryBefore);
+    const carryBox = boxOf(this.flagElement(banks, "c"));
+    const bit = 28;
+    const gap = 6;
+    const rowWidth = 8 * bit + 7 * gap;
+    const view = this.root.ownerDocument.defaultView;
+    const viewWidth = view?.innerWidth || 1200;
+    let rowLeft = box.left + box.width / 2 - rowWidth / 2;
+    rowLeft = Math.max(8, Math.min(rowLeft, viewWidth - rowWidth - 8));
+    let rowTop = box.top - bit - 16;
+    if (rowTop < 8) {
+      rowTop = box.top + box.height + 12;
+    }
+    const slotAt = (slot: number): { x: number; y: number } => ({
+      x: rowLeft + slot * (bit + gap),
+      y: rowTop,
+    });
+    const cellAt = {
+      x: box.left + box.width / 2 - bit / 2,
+      y: box.top + box.height / 2 - bit / 2,
+    };
+    const carryAt = carryBox === undefined
+      ? { x: box.left + box.width + 48, y: box.top }
+      : {
+        x: carryBox.left + carryBox.width / 2 - bit / 2,
+        y: carryBox.top + carryBox.height / 2 - bit / 2,
+      };
+    for (const track of tracks) {
+      this.flyBit(track, cellAt, slotAt, carryAt);
+    }
+    const generation = this.generation;
+    this.timers.push(window.setTimeout(() => {
+      if (generation !== this.generation) {
+        return;
+      }
+      this.showFlag(banks, "c", plan.carryAfter);
+    }, Math.round(SHIFT_MS * 0.84)));
+    if (plan.flagsFromResult) {
+      this.timers.push(window.setTimeout(() => {
+        if (generation !== this.generation) {
+          return;
+        }
+        this.showFlag(banks, "s", plan.sign);
+        this.showFlag(banks, "z", plan.zero);
+        this.showFlag(banks, "pv", plan.parity);
+      }, Math.round(SHIFT_MS * 0.92)));
+    }
+  }
+
+  private flyBit(
+    track: ShiftTrack,
+    cellAt: { x: number; y: number },
+    slotAt: (slot: number) => { x: number; y: number },
+    carryAt: { x: number; y: number },
+  ): void {
+    const chip = this.root.ownerDocument.createElement("div");
+    chip.className = "shift-bit";
+    chip.dataset.value = String(track.value);
+    chip.dataset.from = track.from;
+    chip.dataset.to = track.to;
+    if (track.fromSlot !== undefined) {
+      chip.dataset.fromSlot = String(track.fromSlot);
+    }
+    if (track.toSlot !== undefined) {
+      chip.dataset.toSlot = String(track.toSlot);
+    }
+    chip.textContent = String(track.value);
+    chip.setAttribute("aria-hidden", "true");
+    this.root.ownerDocument.body.append(chip);
+    this.nodes.push(chip);
+    const end = track.to === "carry" ? carryAt : slotAt(track.toSlot ?? 0);
+    const home = track.from === "bit" ? slotAt(track.fromSlot ?? 0) : track.from === "carry" ? carryAt : end;
+    const frames = track.from === "fill"
+      ? [
+        { transform: `translate(${end.x}px, ${end.y}px) scale(0.4)`, opacity: 0 },
+        { transform: `translate(${end.x}px, ${end.y}px) scale(0.4)`, opacity: 0, offset: 0.42 },
+        { transform: `translate(${end.x}px, ${end.y}px) scale(1.12)`, opacity: 1, offset: 0.7 },
+        { transform: `translate(${end.x}px, ${end.y}px) scale(1)`, opacity: 1 },
+      ]
+      : track.from === "carry"
+        ? [
+          { transform: `translate(${home.x}px, ${home.y}px) scale(1)`, opacity: 1 },
+          { transform: `translate(${home.x}px, ${home.y - 10}px) scale(1.05)`, offset: 0.4 },
+          { transform: `translate(${end.x}px, ${end.y}px) scale(1)`, offset: 0.78 },
+          { transform: `translate(${end.x}px, ${end.y}px) scale(1)` },
+        ]
+        : [
+          { transform: `translate(${cellAt.x}px, ${cellAt.y}px) scale(0.45)`, opacity: 0.2 },
+          { transform: `translate(${home.x}px, ${home.y}px) scale(1.06)`, opacity: 1, offset: 0.28 },
+          { transform: `translate(${home.x}px, ${home.y}px) scale(1)`, opacity: 1, offset: 0.42 },
+          { transform: `translate(${end.x}px, ${end.y}px) scale(1)`, opacity: 1, offset: track.to === "carry" ? 0.86 : 0.74 },
+          { transform: `translate(${end.x}px, ${end.y}px) scale(1)`, opacity: 1 },
+        ];
+    this.animate(chip, frames, SHIFT_MS, "linear");
+  }
+
+  private showFlag(banks: Banks, key: string, on: boolean): void {
+    const element = this.flagElement(banks, key);
+    if (element === null) {
+      return;
+    }
+    const was = element.dataset.set === "1";
+    element.dataset.set = on ? "1" : "0";
+    element.classList.toggle("set", on);
+    if (was !== on) {
+      element.classList.add("changed");
+    }
+  }
+
+  private flagElement(banks: Banks, key: string): HTMLElement | null {
+    const side = banks.main.afActive ? "main" : "alt";
+    return this.root.querySelector<HTMLElement>(`[data-side="${side}"][data-flag="${key}"]`);
+  }
+
   private dim(anchor: Anchor, banks: Banks): void {
     if (anchor.type === "source" || anchor.type === "console") {
       return;
     }
-    const element = this.anchorElement(anchor, banks);
-    if (element === null) {
-      return;
+    const elements = anchor.type === "mem"
+      ? Array.from(this.root.querySelectorAll<HTMLElement>(`[data-addr="${anchor.address}"]`))
+      : [this.anchorElement(anchor, banks)].filter((element): element is HTMLElement => element !== null);
+    for (const element of elements) {
+      element.style.opacity = "0";
+      this.hidden.push(element);
     }
-    element.style.opacity = "0";
-    this.hidden.push(element);
   }
 
   private anchorBox(anchor: Anchor, banks: Banks, sourceRect: Box | undefined): Box | undefined {
@@ -235,13 +371,18 @@ export class MotionStage {
     ]);
   }
 
-  private animate(element: HTMLElement, frames: Keyframe[]): void {
+  private animate(
+    element: HTMLElement,
+    frames: Keyframe[],
+    duration = MOTION_MS,
+    easing = "cubic-bezier(0.2, 0.75, 0.2, 1)",
+  ): void {
     if (typeof element.animate !== "function") {
       return;
     }
     const animation = element.animate(frames, {
-      duration: MOTION_MS,
-      easing: "cubic-bezier(0.2, 0.75, 0.2, 1)",
+      duration,
+      easing,
       fill: "forwards",
     });
     this.animations.push(animation);
@@ -250,8 +391,8 @@ export class MotionStage {
       if (generation !== this.generation) {
         return;
       }
-      if (this.animations.every((item) => item.playState === "finished")) {
-        this.finish();
+      if (this.animations.every((item) => item.playState !== "running")) {
+        this.complete?.();
       }
     };
   }

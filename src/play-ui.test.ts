@@ -46,7 +46,7 @@ describe("tabletop debugger", () => {
     vi.restoreAllMocks();
     document.body.replaceChildren();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    document.querySelectorAll(".travel-token, .flying-badge, .flying-stack-mark").forEach((node) => node.remove());
+    document.querySelectorAll(".travel-token, .flying-badge, .flying-stack-mark, .shift-bit").forEach((node) => node.remove());
   });
 
   it("sends an immediate on a chip and keeps the register correct", () => {
@@ -209,6 +209,85 @@ describe("tabletop debugger", () => {
     const word = root.querySelector("#memory-stack [data-addr='65278']");
     expect(word?.textContent).toBe("BEEF");
     expect(word?.parentElement?.querySelector("[data-label]")?.textContent).toBe("BC → DE");
+  });
+
+  it("pops RLA into bits and puts A back in the selected format", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    chooseExample(root, "shifts");
+    click(root, "#step");
+    click(root, "#step");
+
+    expect(text(root, "#last-instruction")).toBe("RLA");
+    expect(text(root, "[data-key='main.a']")).toBe("02");
+    expect(root.querySelector("[data-key='main.a']")?.getAttribute("style")).toContain("opacity");
+    const bits = Array.from(document.querySelectorAll(".shift-bit"));
+    expect(bits.length).toBeGreaterThanOrEqual(8);
+    const original = new Map<string, string>();
+    for (const bit of bits) {
+      if (bit.getAttribute("data-from") === "bit") {
+        const slot = bit.getAttribute("data-from-slot");
+        if (slot !== null) {
+          original.set(slot, bit.textContent ?? "");
+        }
+      }
+    }
+    expect(Array.from({ length: 8 }, (_, slot) => original.get(String(slot))).join("")).toBe("10000001");
+    expect(bits.some((bit) => bit.getAttribute("data-to") === "carry" && bit.textContent === "1")).toBe(true);
+    expect(bits.some((bit) => bit.getAttribute("data-from") === "carry" && bit.textContent === "0")).toBe(true);
+    expect(root.querySelector("[data-flag='c'][data-side='main']")?.getAttribute("data-set")).toBe("0");
+    expect(root.querySelector("[data-flag='s'][data-side='main']")?.classList.contains("set")).toBe(false);
+
+    click(root, "#format-decimal");
+    expect(text(root, "[data-key='main.a']")).toBe("  2");
+    expect(text(root, "[data-key='main.a']")).not.toBe("00000010");
+  });
+
+  it("keeps the result and Carry when motion is off", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    click(root, "#motion-toggle");
+    chooseExample(root, "shifts");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("02");
+    expect(root.querySelector("[data-flag='c'][data-side='main']")?.getAttribute("data-set")).toBe("1");
+    expect(document.querySelector(".shift-bit")).toBeNull();
+  });
+
+  it("holds S, Z, and P/V until a CB rotate settles, and pops (HL)", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const editor = editorValue(root);
+    editor.value = [
+      "        ORG 0100H",
+      "        LD A, 81H",
+      "        RLC A",
+      "        LD HL, 0C000H",
+      "        LD (HL), 81H",
+      "        RL (HL)",
+      "        HALT",
+    ].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("03");
+    expect(root.querySelector("[data-flag='c'][data-side='main']")?.getAttribute("data-set")).toBe("0");
+    expect(root.querySelector("[data-flag='pv'][data-side='main']")?.getAttribute("data-set")).toBe("0");
+    expect(root.querySelector("[data-flag='h'][data-side='main']")?.getAttribute("data-set")).toBe("0");
+    expect(document.querySelector(".shift-bit[data-to='bit'][data-to-slot='7']")?.textContent).toBe("1");
+
+    click(root, "#step");
+    click(root, "#step");
+    click(root, "#step");
+    const cell = root.querySelector("#memory-focus [data-addr='49152']");
+    expect(cell?.textContent).toBe("03");
+    expect(cell?.getAttribute("style")).toContain("opacity");
+    expect(root.querySelector("[data-key='main.a']")?.getAttribute("style") ?? "").not.toContain("opacity");
+    expect(document.querySelectorAll(".shift-bit").length).toBeGreaterThanOrEqual(8);
   });
 });
 

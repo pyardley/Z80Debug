@@ -5,6 +5,19 @@ import { formatStackLabel } from "./stack";
 /** A short trip, about half a second. Stepping again cancels whatever is still in the air. */
 export const MOTION_MS = 520;
 
+/** Pop the byte into bits, slide them, and land the leaving bit on Carry. */
+export const SHIFT_MS = 900;
+
+export type ShiftKind = "rlc" | "rrc" | "rl" | "rr" | "sla" | "sra" | "sll" | "srl";
+
+export interface ShiftTrack {
+  value: 0 | 1;
+  from: "bit" | "carry" | "fill";
+  fromSlot?: number;
+  to: "bit" | "carry";
+  toSlot?: number;
+}
+
 export type RegName =
   | "a" | "b" | "c" | "d" | "e" | "h" | "l" | "i" | "r"
   | "af" | "bc" | "de" | "hl" | "sp" | "ix" | "iy" | "pc";
@@ -25,10 +38,26 @@ export interface Travel {
   label?: string;
 }
 
+export interface ShiftMotion {
+  type: "shift";
+  anchor: { type: "reg"; name: RegName } | { type: "mem"; address: number };
+  before: number;
+  after: number;
+  carryBefore: boolean;
+  carryAfter: boolean;
+  kind: ShiftKind;
+  /** CB shifts set S, Z, and P/V from the result. RLCA, RRCA, RLA, and RRA do not. */
+  flagsFromResult: boolean;
+  sign: boolean;
+  zero: boolean;
+  parity: boolean;
+}
+
 export type MotionPlan =
   | { type: "none" }
   | { type: "swap"; group: "af" | "exx" }
-  | { type: "travel"; moves: Travel[] };
+  | { type: "travel"; moves: Travel[] }
+  | ShiftMotion;
 
 export interface MotionFacts {
   mnemonic: string;
@@ -66,6 +95,8 @@ export interface MotionBase {
   iy: number;
   waiting: number;
   outLength: number;
+  /** Four bytes at PC, captured before the step. Indexed shifts are not reliable in the disassembly text. */
+  opcodes: readonly [number, number, number, number];
 }
 
 const NONE: MotionPlan = { type: "none" };
@@ -98,17 +129,24 @@ export function captureMotionBase(machine: Machine): MotionBase {
   const banks = machine.banks();
   const af = banks.main.afActive ? banks.main : banks.alternate;
   const exx = banks.main.exxActive ? banks.main : banks.alternate;
+  const pc = machine.cpu.regs.pc & 0xffff;
   return {
     af: af.af & 0xffff,
     bc: exx.bc & 0xffff,
     de: exx.de & 0xffff,
     hl: exx.hl & 0xffff,
     sp: machine.cpu.regs.sp & 0xffff,
-    pc: machine.cpu.regs.pc & 0xffff,
+    pc,
     ix: machine.cpu.regs.ix & 0xffff,
     iy: machine.cpu.regs.iy & 0xffff,
     waiting: machine.console.waiting,
     outLength: machine.console.bytes.length,
+    opcodes: [
+      machine.memory[pc] ?? 0,
+      machine.memory[(pc + 1) & 0xffff] ?? 0,
+      machine.memory[(pc + 2) & 0xffff] ?? 0,
+      machine.memory[(pc + 3) & 0xffff] ?? 0,
+    ],
   };
 }
 
@@ -118,6 +156,10 @@ export function planAfterStep(base: MotionBase, machine: Machine): MotionPlan {
   const exx = banks.main.exxActive ? banks.main : banks.alternate;
   const grown = machine.console.bytes.slice(base.outLength);
   const mnemonic = machine.lastInstruction;
+  const shift = planShift(base, machine);
+  if (shift !== undefined) {
+    return shift;
+  }
   return attachStackLabel(planMotion({
     mnemonic,
     a: hi(af.af),
@@ -173,6 +215,9 @@ function attachStackLabel(plan: MotionPlan, machine: Machine, spBefore: number):
 }
 
 export function motionMemoryAddress(plan: MotionPlan): number | undefined {
+  if (plan.type === "shift" && plan.anchor.type === "mem") {
+    return plan.anchor.address;
+  }
   if (plan.type !== "travel") {
     return undefined;
   }
@@ -444,6 +489,159 @@ function writtenWord(writes: readonly MemoryWrite[], address: number): number | 
 function carry(from: Anchor, to: Anchor, value: number, width: 8 | 16, pop = false): Travel {
   const mask = width === 8 ? 0xff : 0xffff;
   return { from, to, value: value & mask, width, pop };
+}
+
+const SHIFT_KINDS: readonly ShiftKind[] = ["rlc", "rrc", "rl", "rr", "sla", "sra", "sll", "srl"];
+const SHIFT_REGS: readonly RegName[] = ["b", "c", "d", "e", "h", "l", "a"];
+
+/** Eight bits, slot 0 at the left (bit 7) and slot 7 at the right (bit 0). */
+export function shiftTracks(kind: ShiftKind, before: number, carryBefore: boolean): ShiftTrack[] {
+  const bits = Array.from({ length: 8 }, (_, slot) => ((before >> (7 - slot)) & 1) as 0 | 1);
+  const carry: 0 | 1 = carryBefore ? 1 : 0;
+  if (kind === "rlc" || kind === "rl" || kind === "sla" || kind === "sll") {
+    return leftTracks(bits, carry, kind === "rlc" ? "wrap" : kind === "rl" ? "carry" : kind === "sll" ? 1 : 0);
+  }
+  return rightTracks(bits, carry, kind === "rrc" ? "wrap" : kind === "rr" ? "carry" : kind === "sra" ? "sign" : "zero");
+}
+
+function leftTracks(bits: Array<0 | 1>, carry: 0 | 1, fill: "wrap" | "carry" | 0 | 1): ShiftTrack[] {
+  const tracks: ShiftTrack[] = [];
+  const leaving = bits[0];
+  if (fill === "wrap") {
+    tracks.push({ value: leaving, from: "bit", fromSlot: 0, to: "bit", toSlot: 7 });
+  }
+  tracks.push({ value: leaving, from: "bit", fromSlot: 0, to: "carry" });
+  for (let slot = 1; slot <= 7; slot++) {
+    tracks.push({ value: bits[slot], from: "bit", fromSlot: slot, to: "bit", toSlot: slot - 1 });
+  }
+  if (fill === "carry") {
+    tracks.push({ value: carry, from: "carry", to: "bit", toSlot: 7 });
+  } else if (fill === 0 || fill === 1) {
+    tracks.push({ value: fill, from: "fill", to: "bit", toSlot: 7 });
+  }
+  return tracks;
+}
+
+function rightTracks(
+  bits: Array<0 | 1>,
+  carry: 0 | 1,
+  fill: "wrap" | "carry" | "zero" | "sign",
+): ShiftTrack[] {
+  const tracks: ShiftTrack[] = [];
+  const leaving = bits[7];
+  if (fill === "wrap") {
+    tracks.push({ value: leaving, from: "bit", fromSlot: 7, to: "bit", toSlot: 0 });
+  }
+  tracks.push({ value: leaving, from: "bit", fromSlot: 7, to: "carry" });
+  if (fill === "sign") {
+    tracks.push({ value: bits[0], from: "bit", fromSlot: 0, to: "bit", toSlot: 0 });
+    tracks.push({ value: bits[0], from: "bit", fromSlot: 0, to: "bit", toSlot: 1 });
+    for (let slot = 1; slot <= 6; slot++) {
+      tracks.push({ value: bits[slot], from: "bit", fromSlot: slot, to: "bit", toSlot: slot + 1 });
+    }
+    return tracks;
+  }
+  for (let slot = 0; slot <= 6; slot++) {
+    tracks.push({ value: bits[slot], from: "bit", fromSlot: slot, to: "bit", toSlot: slot + 1 });
+  }
+  if (fill === "carry") {
+    tracks.push({ value: carry, from: "carry", to: "bit", toSlot: 0 });
+  } else if (fill === "zero") {
+    tracks.push({ value: 0, from: "fill", to: "bit", toSlot: 0 });
+  }
+  return tracks;
+}
+
+function planShift(base: MotionBase, machine: Machine): ShiftMotion | undefined {
+  const [b0, b1, b2, b3] = base.opcodes;
+  if (b0 === 0x07 || b0 === 0x0f || b0 === 0x17 || b0 === 0x1f) {
+    const kind: ShiftKind = b0 === 0x07 ? "rlc" : b0 === 0x0f ? "rrc" : b0 === 0x17 ? "rl" : "rr";
+    return describeShift(kind, { type: "reg", name: "a" }, false, base, machine);
+  }
+
+  let op = -1;
+  let memory: number | undefined;
+  if (b0 === 0xcb) {
+    op = b1;
+  } else if ((b0 === 0xdd || b0 === 0xfd) && b1 === 0xcb) {
+    op = b3;
+    const disp = b2 >= 0x80 ? b2 - 0x100 : b2;
+    const index = b0 === 0xdd ? base.ix : base.iy;
+    memory = (index + disp) & 0xffff;
+  } else {
+    return undefined;
+  }
+  if ((op & 0xc0) !== 0) {
+    return undefined;
+  }
+  const kind = SHIFT_KINDS[(op >> 3) & 7];
+  const field = op & 7;
+  if (memory !== undefined || field === 6) {
+    const address = memory !== undefined ? memory : base.hl & 0xffff;
+    return describeShift(kind, { type: "mem", address }, true, base, machine);
+  }
+  const name = SHIFT_REGS[field < 6 ? field : 6];
+  return describeShift(kind, { type: "reg", name }, true, base, machine);
+}
+
+function describeShift(
+  kind: ShiftKind,
+  anchor: ShiftMotion["anchor"],
+  flagsFromResult: boolean,
+  base: MotionBase,
+  machine: Machine,
+): ShiftMotion {
+  const banks = machine.banks();
+  const afBank = banks.main.afActive ? banks.main : banks.alternate;
+  const exxBank = banks.main.exxActive ? banks.main : banks.alternate;
+  const flags = afBank.af & 0xff;
+  let before = 0;
+  let after = 0;
+  if (anchor.type === "reg") {
+    before = registerByte(anchor.name, base);
+    after = registerByte(anchor.name, { af: afBank.af, bc: exxBank.bc, de: exxBank.de, hl: exxBank.hl });
+  } else {
+    const write = machine.writes.find((item) => item.address === anchor.address);
+    before = (write === undefined ? machine.memory[anchor.address] : write.previous) & 0xff;
+    after = (write === undefined ? machine.memory[anchor.address] : write.value) & 0xff;
+  }
+  return {
+    type: "shift",
+    anchor,
+    before,
+    after,
+    carryBefore: (base.af & 1) !== 0,
+    carryAfter: (flags & 1) !== 0,
+    kind,
+    flagsFromResult,
+    sign: (flags & 0x80) !== 0,
+    zero: (flags & 0x40) !== 0,
+    parity: (flags & 0x04) !== 0,
+  };
+}
+
+function registerByte(
+  name: RegName,
+  regs: { af: number; bc: number; de: number; hl: number },
+): number {
+  switch (name) {
+    case "a":
+      return (regs.af >> 8) & 0xff;
+    case "b":
+      return (regs.bc >> 8) & 0xff;
+    case "c":
+      return regs.bc & 0xff;
+    case "d":
+      return (regs.de >> 8) & 0xff;
+    case "e":
+      return regs.de & 0xff;
+    case "h":
+      return (regs.hl >> 8) & 0xff;
+    case "l":
+      return regs.hl & 0xff;
+    default:
+      return 0;
+  }
 }
 
 function readsConsole(mnemonic: string, bcBefore: number, waitingDropped: boolean): boolean {

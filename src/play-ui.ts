@@ -78,6 +78,13 @@ export function mount(root: HTMLElement): void {
   let spotlight: number | undefined;
   const stackWindow: { top: number | undefined } = { top: undefined };
   let motionOn = true;
+  let flagHold: {
+    side: "main" | "alt";
+    carry: boolean;
+    sign?: boolean;
+    zero?: boolean;
+    parity?: boolean;
+  } | undefined;
   let popConsole = false;
   let savedText = "";
   let loadedName = UNTITLED;
@@ -237,7 +244,7 @@ export function mount(root: HTMLElement): void {
   });
 
   required<HTMLButtonElement>(root, "#assemble").addEventListener("click", () => {
-    stage.finish();
+    stopMotion();
     machine.assemble(editor.value);
     lookAddress = undefined;
     followWrite = true;
@@ -246,7 +253,7 @@ export function mount(root: HTMLElement): void {
     render();
   });
   required<HTMLButtonElement>(root, "#reset").addEventListener("click", () => {
-    stage.finish();
+    stopMotion();
     machine.reset();
     lookAddress = undefined;
     followWrite = true;
@@ -259,8 +266,8 @@ export function mount(root: HTMLElement): void {
   });
   required<HTMLButtonElement>(root, "#motion-toggle").addEventListener("click", () => {
     motionOn = !motionOn;
-    stage.finish();
-    paintMotion();
+    stopMotion();
+    render();
   });
   required<HTMLButtonElement>(root, "#file-menu-button").addEventListener("click", () => {
     toggleMenu();
@@ -299,7 +306,7 @@ export function mount(root: HTMLElement): void {
     loadExample(id);
   });
   required<HTMLButtonElement>(root, "#console-clear").addEventListener("click", () => {
-    stage.finish();
+    stopMotion();
     machine.clearConsole();
     render();
   });
@@ -310,7 +317,7 @@ export function mount(root: HTMLElement): void {
 
   for (const name of formatNames()) {
     required<HTMLButtonElement>(root, `#format-${name}`).addEventListener("click", () => {
-      stage.finish();
+      stopMotion();
       format = name;
       writeDisplayFormat(format);
       render();
@@ -374,8 +381,13 @@ export function mount(root: HTMLElement): void {
 
   render();
 
-  function stepOnce(): void {
+  function stopMotion(): void {
     stage.finish();
+    flagHold = undefined;
+  }
+
+  function stepOnce(): void {
+    stopMotion();
     if (!machine.ready || machine.halted) {
       render();
       return;
@@ -395,6 +407,16 @@ export function mount(root: HTMLElement): void {
     const plan = planAfterStep(base, machine);
     spotlight = motionMemoryAddress(plan);
     popConsole = plan.type === "travel" && plan.moves.some((move) => move.pop);
+    const activeSide = machine.banks().main.afActive ? "main" : "alt";
+    flagHold = motionOn && plan.type === "shift"
+      ? {
+        side: activeSide,
+        carry: plan.carryBefore,
+        sign: plan.flagsFromResult ? (base.af & 0x80) !== 0 : undefined,
+        zero: plan.flagsFromResult ? (base.af & 0x40) !== 0 : undefined,
+        parity: plan.flagsFromResult ? (base.af & 0x04) !== 0 : undefined,
+      }
+      : undefined;
     render();
     popConsole = false;
     const spAfter = machine.cpu.regs.sp & 0xffff;
@@ -409,6 +431,12 @@ export function mount(root: HTMLElement): void {
         swap: plan.type === "swap" ? swap : undefined,
         stackMark: stackMoved && markFrom !== undefined && markNow !== null
           ? { from: markFrom, live: markNow }
+          : undefined,
+        onSettled: plan.type === "shift"
+          ? () => {
+            flagHold = undefined;
+            render();
+          }
           : undefined,
       });
     }
@@ -459,7 +487,7 @@ export function mount(root: HTMLElement): void {
       paintDocument();
       return;
     }
-    stage.finish();
+    stopMotion();
     replaceDocument(example.source, example.filename, undefined, example.id);
     setFileStatus(`Loaded ${example.filename}.`);
   }
@@ -469,7 +497,7 @@ export function mount(root: HTMLElement): void {
       return;
     }
     closeMenu();
-    stage.finish();
+    stopMotion();
     replaceDocument("", UNTITLED, undefined, "");
     setFileStatus("");
   }
@@ -485,7 +513,7 @@ export function mount(root: HTMLElement): void {
         try {
           const handle = await openWithPicker();
           const opened = await readHandle(handle);
-          stage.finish();
+          stopMotion();
           replaceDocument(opened.text, opened.name, handle, "");
           setFileStatus(`Opened ${opened.name}.`);
           return;
@@ -514,7 +542,7 @@ export function mount(root: HTMLElement): void {
     }
     try {
       const text = await file.text();
-      stage.finish();
+      stopMotion();
       replaceDocument(text, file.name, undefined, "");
       setFileStatus(`Opened ${file.name}.`);
     } catch (error) {
@@ -828,6 +856,25 @@ export function mount(root: HTMLElement): void {
     return row;
   }
 
+  function heldFlag(prefix: string, key: string): boolean | undefined {
+    if (flagHold === undefined || flagHold.side !== prefix) {
+      return undefined;
+    }
+    if (key === "c") {
+      return flagHold.carry;
+    }
+    if (key === "s") {
+      return flagHold.sign;
+    }
+    if (key === "z") {
+      return flagHold.zero;
+    }
+    if (key === "pv") {
+      return flagHold.parity;
+    }
+    return undefined;
+  }
+
   function flagRow(prefix: string, flags: number): HTMLElement {
     const row = document.createElement("div");
     row.className = "flags";
@@ -839,11 +886,15 @@ export function mount(root: HTMLElement): void {
       const bit = document.createElement("span");
       bit.className = "flag";
       bit.textContent = flag.label;
-      bit.dataset.set = (flags & flag.mask) !== 0 ? "1" : "0";
-      if ((flags & flag.mask) !== 0) {
+      bit.dataset.flag = flag.key;
+      bit.dataset.side = prefix;
+      const held = heldFlag(prefix, flag.key);
+      const on = held ?? ((flags & flag.mask) !== 0);
+      bit.dataset.set = on ? "1" : "0";
+      if (on) {
         bit.classList.add("set");
       }
-      if (machine.changed.has(`${prefix}.flag.${flag.key}`)) {
+      if (held === undefined && machine.changed.has(`${prefix}.flag.${flag.key}`)) {
         bit.classList.add("changed");
       }
       row.append(bit);
