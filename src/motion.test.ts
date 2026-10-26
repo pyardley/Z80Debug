@@ -5,8 +5,11 @@ import {
   captureMotionBase,
   planAfterStep,
   planMotion,
+  shiftTracks,
   type MotionFacts,
   type MotionPlan,
+  type ShiftKind,
+  type ShiftMotion,
 } from "./motion";
 
 function facts(partial: Partial<MotionFacts> & Pick<MotionFacts, "mnemonic">): MotionFacts {
@@ -258,5 +261,178 @@ describe("examples", () => {
     expect(seen[5].plan).toMatchObject({
       moves: [{ from: { type: "mem", address: 0xfefe }, to: { type: "reg", name: "de" }, value: 0xbeef, label: "BC → DE" }],
     });
+  });
+});
+
+function trace(source: string): { mnemonic: string; plan: MotionPlan; af: number }[] {
+  const machine = new Machine();
+  expect(machine.assemble(source), JSON.stringify(machine.errors)).toBe(true);
+  const seen: { mnemonic: string; plan: MotionPlan; af: number }[] = [];
+  while (!machine.halted && machine.steps < 40) {
+    const base = captureMotionBase(machine);
+    machine.step();
+    seen.push({
+      mnemonic: machine.lastInstruction,
+      plan: planAfterStep(base, machine),
+      af: machine.cpu.regs.af & 0xffff,
+    });
+  }
+  return seen;
+}
+
+function shiftNamed(seen: { mnemonic: string; plan: MotionPlan }[], mnemonic: string): ShiftMotion {
+  const step = seen.find((item) => item.mnemonic === mnemonic);
+  expect(step?.plan.type).toBe("shift");
+  return step?.plan as ShiftMotion;
+}
+
+describe("shift and rotate motion", () => {
+  it("rotates 81H through Carry and around the byte", () => {
+    const rla = shiftNamed(trace(`
+      ORG 0100H
+      LD A, 81H
+      RLA
+      HALT
+    `), "RLA");
+    expect(rla).toMatchObject({
+      anchor: { type: "reg", name: "a" },
+      before: 0x81,
+      after: 0x02,
+      carryBefore: false,
+      carryAfter: true,
+      kind: "rl",
+      flagsFromResult: false,
+    });
+
+    const rlc = shiftNamed(trace(`
+      ORG 0100H
+      LD A, 81H
+      RLC A
+      HALT
+    `), "RLC A");
+    expect(rlc).toMatchObject({
+      anchor: { type: "reg", name: "a" },
+      before: 0x81,
+      after: 0x03,
+      carryBefore: false,
+      carryAfter: true,
+      kind: "rlc",
+      flagsFromResult: true,
+      parity: true,
+    });
+
+    const rra = trace(`
+      ORG 0100H
+      SCF
+      LD A, 01H
+      RRA
+      HALT
+    `);
+    const step = shiftNamed(rra, "RRA");
+    expect(step).toMatchObject({
+      anchor: { type: "reg", name: "a" },
+      before: 0x01,
+      after: 0x80,
+      carryBefore: true,
+      kind: "rr",
+      flagsFromResult: false,
+    });
+    // The low bit of 01H is 1, so that bit replaces Carry and Carry stays set.
+    expect(step.carryAfter).toBe(true);
+    expect(rra.find((item) => item.mnemonic === "RRA")?.af).toBe(0x8001);
+  });
+
+  it("leaves S, Z, and P/V alone on RLA and sets them from a CB shift", () => {
+    const seen = trace(`
+      ORG 0100H
+      LD A, 80H
+      OR A
+      RLA
+      RL A
+      HALT
+    `);
+    const rla = shiftNamed(seen, "RLA");
+    expect(rla.flagsFromResult).toBe(false);
+    expect(rla.after).toBe(0x00);
+    expect(rla.carryAfter).toBe(true);
+    expect(rla.sign).toBe(true);
+    expect(rla.zero).toBe(false);
+    const rl = shiftNamed(seen, "RL A");
+    expect(rl.flagsFromResult).toBe(true);
+    expect(rl.before).toBe(0x00);
+    expect(rl.after).toBe(0x01);
+    expect(rl.carryBefore).toBe(true);
+    expect(rl.carryAfter).toBe(false);
+    expect(rl.zero).toBe(false);
+    expect(rl.sign).toBe(false);
+  });
+
+  it("pops a memory byte for (HL) and for indexed shifts, including SLL", () => {
+    const machine = new Machine();
+    const source = `
+      ORG 0100H
+      LD HL, 0C000H
+      LD (HL), 81H
+      SLA (HL)
+      LD IX, 4000H
+      LD (IX+5), 81H
+      RL (IX+5)
+      LD IY, 5000H
+      LD (IY+0FFH), 01H
+      RRC (IY+0FFH)
+      LD A, 80H
+      SLL A
+      HALT
+    `;
+    expect(machine.assemble(source), JSON.stringify(machine.errors)).toBe(true);
+    const seen: { mnemonic: string; plan: MotionPlan }[] = [];
+    while (!machine.halted && machine.steps < 40) {
+      const base = captureMotionBase(machine);
+      machine.step();
+      seen.push({ mnemonic: machine.lastInstruction, plan: planAfterStep(base, machine) });
+    }
+    expect(machine.memory[0xc000]).toBe(0x02);
+    expect(machine.memory[0x4005]).toBe(0x03);
+    expect(machine.memory[0x4fff]).toBe(0x80);
+    expect(machine.cpu.regs.a).toBe(0x01);
+    const sla = shiftNamed(seen, "SLA (HL)");
+    expect(sla.anchor).toEqual({ type: "mem", address: 0xc000 });
+    expect(sla).toMatchObject({ before: 0x81, after: 0x02, kind: "sla", carryAfter: true, flagsFromResult: true });
+    const indexed = seen.filter((item) => item.plan.type === "shift" && item.plan.anchor.type === "mem");
+    expect(indexed.map((item) => item.plan)).toEqual([
+      expect.objectContaining({ anchor: { type: "mem", address: 0xc000 }, kind: "sla" }),
+      expect.objectContaining({ anchor: { type: "mem", address: 0x4005 }, kind: "rl", before: 0x81, after: 0x03 }),
+      expect.objectContaining({ anchor: { type: "mem", address: 0x4fff }, kind: "rrc", before: 0x01, after: 0x80 }),
+    ]);
+    expect(shiftNamed(seen, "SLL A")).toMatchObject({
+      anchor: { type: "reg", name: "a" },
+      before: 0x80,
+      after: 0x01,
+      kind: "sll",
+      carryAfter: true,
+      flagsFromResult: true,
+    });
+  });
+
+  it("sends the leaving bit to Carry and wraps only on a rotate", () => {
+    const landed = (kind: ShiftKind, before: number, carry: boolean) => {
+      const tracks = shiftTracks(kind, before, carry);
+      const bits = Array.from({ length: 8 }, () => 0);
+      for (const track of tracks) {
+        if (track.to === "bit" && track.toSlot !== undefined) {
+          bits[track.toSlot] = track.value;
+        }
+      }
+      const value = bits.reduce((packed, bit) => (packed << 1) | bit, 0);
+      const leaving = tracks.find((track) => track.to === "carry");
+      return { value, carry: leaving?.value === 1, wrapped: tracks.some((track) => track.from === "bit" && track.to === "bit" && track.fromSlot !== track.toSlot && (track.fromSlot === 0 || track.fromSlot === 7) && (track.toSlot === 0 || track.toSlot === 7)) };
+    };
+    expect(landed("rl", 0x81, false)).toEqual({ value: 0x02, carry: true, wrapped: false });
+    expect(landed("rlc", 0x81, false)).toEqual({ value: 0x03, carry: true, wrapped: true });
+    expect(landed("rr", 0x01, true)).toEqual({ value: 0x80, carry: true, wrapped: false });
+    expect(landed("rrc", 0x01, false)).toEqual({ value: 0x80, carry: true, wrapped: true });
+    expect(landed("sll", 0x80, false)).toEqual({ value: 0x01, carry: true, wrapped: false });
+    expect(landed("sra", 0x81, false)).toEqual({ value: 0xc0, carry: true, wrapped: false });
+    expect(landed("srl", 0x81, false)).toEqual({ value: 0x40, carry: true, wrapped: false });
   });
 });

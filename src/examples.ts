@@ -4,6 +4,7 @@ import exchange from "../examples/exchange.asm";
 import flags from "../examples/flags.asm";
 import memory from "../examples/memory.asm";
 import sample from "../examples/sample.asm";
+import shifts from "../examples/shifts.asm";
 import stack from "../examples/stack.asm";
 import table from "../examples/table.asm";
 
@@ -22,6 +23,7 @@ export const EXAMPLES: readonly ExampleProgram[] = [
   { id: "memory", label: "Memory", filename: "memory.asm", source: memory },
   { id: "exchange", label: "Exchange", filename: "exchange.asm", source: exchange },
   { id: "stack", label: "Stack", filename: "stack.asm", source: stack },
+  { id: "shifts", label: "Shifts", filename: "shifts.asm", source: shifts },
   { id: "table", label: "Table", filename: "table.asm", source: table },
 ];
 

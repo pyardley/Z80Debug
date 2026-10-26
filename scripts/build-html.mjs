@@ -127,6 +127,7 @@ function assertBundle(code) {
     "z80debug.displayFormat",
     "Top of stack",
     "stack.asm",
+    "shifts.asm",
   ]) {
     if (!code.includes(needle)) {
       throw new Error(`bundle missing ${JSON.stringify(needle)}`);
@@ -243,6 +244,7 @@ function assertPlayBundle(code) {
     "EX AF,AF' swaps only AF.",
     "Top of stack",
     "stack.asm",
+    "shifts.asm",
   ]) {
     if (!code.includes(needle)) {
       throw new Error(`play bundle missing ${JSON.stringify(needle)}`);

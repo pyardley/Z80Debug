@@ -641,6 +641,32 @@ textarea {
 .errors { margin-top: 0.4rem; color: #7a2e16; }
 .errors ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
 
+.shift-bit {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 82;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: #fffaf2;
+  color: #140e08;
+  border: 3px solid #6b3e22;
+  border-radius: 8px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1;
+  box-shadow: 0 6px 0 rgba(60, 30, 10, 0.2);
+  pointer-events: none;
+}
+
+.shift-bit[data-value="1"] {
+  background: #ffe08a;
+  border-color: #9c2f1a;
+}
+
 .travel-token {
   position: fixed;
   left: 0;
