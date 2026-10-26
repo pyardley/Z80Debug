@@ -91,30 +91,34 @@ describe("example programs", () => {
     expect(machine.assemble(sourceOf("stack"))).toBe(true);
     const source = sourceOf("stack");
     expect(source).toMatch(/grows downward/i);
-    expect(source).toMatch(/low byte/i);
+    expect(source).toMatch(/BC → DE/);
 
-    stepUntil(machine, "PUSH HL");
+    stepUntil(machine, "PUSH BC");
     expect(machine.cpu.regs.sp).toBe(0xfefe);
     expect(machine.memory[0xfefe]).toBe(0xef);
     expect(machine.memory[0xfeff]).toBe(0xbe);
     expect(machine.writes.map((write) => write.address).sort((a, b) => a - b)).toEqual([0xfefe, 0xfeff]);
+    expect(machine.stackWords.get(0xfefe)).toEqual({ source: "BC" });
 
     stepUntil(machine, "CALL 0X010C");
     expect(machine.cpu.regs.sp).toBe(0xfefc);
     expect(machine.cpu.regs.pc).toBe(0x010c);
     expect(machine.memory[0xfefc]).toBe(0x0a);
     expect(machine.memory[0xfefd]).toBe(0x01);
-    expect(machine.memory[0xfefe]).toBe(0xef);
+    expect(machine.stackWords.get(0xfefc)).toEqual({ source: "return" });
+    expect(machine.stackWords.get(0xfefe)).toEqual({ source: "BC" });
 
     stepUntil(machine, "RET");
     expect(machine.cpu.regs.sp).toBe(0xfefe);
     expect(machine.cpu.regs.pc).toBe(0x010a);
+    expect(machine.stackWords.get(0xfefc)).toEqual({ source: "return", dest: "PC" });
 
-    stepUntil(machine, "POP HL");
+    stepUntil(machine, "POP DE");
     expect(machine.cpu.regs.sp).toBe(0xff00);
-    expect(machine.cpu.regs.hl).toBe(0xbeef);
+    expect(machine.cpu.regs.de).toBe(0xbeef);
     expect(machine.memory[0xfefe]).toBe(0xef);
     expect(machine.memory[0xfeff]).toBe(0xbe);
+    expect(machine.stackWords.get(0xfefe)).toEqual({ source: "BC", dest: "DE" });
   });
 
   it("stores 11H over a zero byte and then two neighbours", () => {

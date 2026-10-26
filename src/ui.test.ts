@@ -170,11 +170,10 @@ describe("console panel", () => {
     const top = root.querySelector("#memory-stack [data-stack-top='true']");
     expect(top?.textContent).toContain("FEFE");
     expect(top?.textContent).toContain("▶ SP");
-    expect(top?.textContent).toContain("Top of stack, low byte");
-    expect(top?.querySelector(".mem-byte")?.textContent).toBe("EF");
+    expect(top?.textContent).toContain("BEEF");
+    expect(top?.querySelector("[data-label]")?.textContent).toBe("BC");
+    expect(top?.querySelector(".mem-byte")?.textContent).toBe("BEEF");
     expect(top?.querySelector(".mem-byte")?.classList.contains("changed")).toBe(true);
-    expect(root.querySelector("#memory-stack [data-addr='65279']")?.textContent).toBe("BE");
-    expect(root.querySelector("#memory-stack [data-addr='65279']")?.classList.contains("changed")).toBe(true);
     expect(Array.from(root.querySelectorAll("[data-key='sp']"), (cell) => cell.textContent)).toEqual(["FEFE", "FEFE"]);
 
     click(root, "#step");
@@ -182,7 +181,10 @@ describe("console panel", () => {
     expect(root.querySelector("#memory-stack [data-stack-top='true']")?.textContent).toContain("FEFE");
     click(root, "#step");
     expect(root.querySelector("#memory-stack [data-stack-top='true']")?.textContent).toContain("FF00");
-    expect(root.querySelector("[data-key='main.hl']")?.textContent).toBe("BEEF");
+    expect(root.querySelector("[data-key='main.de']")?.textContent).toBe("BEEF");
+    const word = root.querySelector("#memory-stack [data-addr='65278']");
+    expect(word?.textContent).toBe("BEEF");
+    expect(word?.parentElement?.querySelector("[data-label]")?.textContent).toBe("BC → DE");
   });
 
   it("shows each OUT immediately, then reads one queued character", () => {

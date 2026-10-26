@@ -526,10 +526,14 @@ textarea {
   color: #1f4d32;
 }
 
+.stack-row .num.word { min-width: 4.5ch; }
+.format-binary .stack-row .num.word { min-width: 16ch; }
+.format-decimal .stack-row .num.word { min-width: 5.4ch; }
+
 .stack-note {
   color: #1f4d32;
-  font-size: 0.75rem;
-  font-weight: 650;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .dump-row {

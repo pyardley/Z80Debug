@@ -235,28 +235,28 @@ describe("examples", () => {
     }
     expect(seen.map((step) => step.mnemonic)).toEqual([
       "LD SP,0XFF00",
-      "LD HL,0XBEEF",
-      "PUSH HL",
+      "LD BC,0XBEEF",
+      "PUSH BC",
       "CALL 0X010C",
       "RET",
-      "POP HL",
+      "POP DE",
       "HALT",
     ]);
     expect(seen[2].sp).toBe(0xfefe);
     expect(seen[2].plan).toMatchObject({
-      moves: [{ from: { type: "reg", name: "hl" }, to: { type: "mem", address: 0xfefe }, value: 0xbeef, width: 16 }],
+      moves: [{ from: { type: "reg", name: "bc" }, to: { type: "mem", address: 0xfefe }, value: 0xbeef, width: 16, label: "BC" }],
     });
     expect(seen[3].sp).toBe(0xfefc);
     expect(seen[3].plan).toMatchObject({
-      moves: [{ from: { type: "reg", name: "pc" }, to: { type: "mem", address: 0xfefc }, value: 0x010a, width: 16 }],
+      moves: [{ from: { type: "reg", name: "pc" }, to: { type: "mem", address: 0xfefc }, value: 0x010a, width: 16, label: "return" }],
     });
     expect(seen[4].sp).toBe(0xfefe);
     expect(seen[4].plan).toMatchObject({
-      moves: [{ from: { type: "mem", address: 0xfefc }, to: { type: "reg", name: "pc" }, value: 0x010a }],
+      moves: [{ from: { type: "mem", address: 0xfefc }, to: { type: "reg", name: "pc" }, value: 0x010a, label: "return → PC" }],
     });
     expect(seen[5].sp).toBe(0xff00);
     expect(seen[5].plan).toMatchObject({
-      moves: [{ from: { type: "mem", address: 0xfefe }, to: { type: "reg", name: "hl" }, value: 0xbeef }],
+      moves: [{ from: { type: "mem", address: 0xfefe }, to: { type: "reg", name: "de" }, value: 0xbeef, label: "BC → DE" }],
     });
   });
 });

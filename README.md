@@ -17,9 +17,9 @@ Ctrl+O or Cmd+O opens. Ctrl+S or Cmd+S saves. Ctrl+Shift+S or Cmd+Shift+S is Sav
 
 `z80debug.html` in the repository root is that same page as one file: the stylesheet in a `<style>` block and the app as one classic script. Download it and open it. Nothing else is fetched.
 
-Memory around PC, memory around the latest write, and the stack sit in a column on the right. The stack grows downward. The row marked SP is the top, and that byte is the low byte of the word. A push, pop, call, or return moves the pointer and highlights bytes that changed.
+Memory around PC, memory around the latest write, and the stack sit in a column on the right. The stack grows downward. Each row is one word, high byte then low byte, and the row marked SP is the top. A push labels that word with the pair name. A call labels it return. A pop shows where the word went, such as BC → DE, and the note stays until those bytes are overwritten.
 
-`z80debug-play.html` is the same machine on a tabletop toy computer. A chip carries a register load, a memory transfer, an immediate from the source line, or a value onto and off the stack. PUSH and CALL slide the SP marker down. POP and RET slide it back up. `EX AF,AF'` and `EXX` slide the Active and Shadow tags separately. **Motion** turns that animation off. The numbers update either way.
+`z80debug-play.html` is the same machine on a tabletop toy computer. A chip carries a register load, a memory transfer, an immediate from the source line, or a stack word with its pair name. PUSH and CALL slide the SP marker down. POP and RET slide it back up. `EX AF,AF'` and `EXX` slide the Active and Shadow tags separately. **Motion** turns that animation off. The numbers update either way.
 
 ```sh
 npm run build:html
