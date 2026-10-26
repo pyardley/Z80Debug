@@ -456,12 +456,14 @@ textarea {
 }
 
 .flag {
+  position: relative;
   display: inline-block;
   min-width: 1.6rem;
   text-align: center;
   border-radius: 3px;
   color: #8a8478;
   font-family: ui-monospace, Menlo, Consolas, monospace;
+  cursor: help;
 }
 
 .flag.set {
@@ -473,6 +475,37 @@ textarea {
 .num.changed, .mem-byte.changed, .flag.changed, .badge.changed {
   background: #f3d48a;
   box-shadow: inset 3px 0 0 #6d4a00;
+}
+
+.flag-state { margin-left: 0.2rem; }
+
+.flag-bubble {
+  display: none;
+  position: absolute;
+  z-index: 40;
+  left: 50%;
+  bottom: calc(100% + 0.4rem);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 16rem;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  white-space: normal;
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: #1c1b16;
+  background: #fffef9;
+  border: 1px solid #8d8878;
+  border-radius: 6px;
+  box-shadow: 0 8px 18px rgba(40, 36, 24, 0.18);
+  pointer-events: none;
+}
+
+.flag:hover .flag-bubble,
+.flag:focus-within .flag-bubble {
+  display: block;
 }
 
 .num.changed::before, .mem-byte.changed::before, .flag.changed::before {

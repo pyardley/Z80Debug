@@ -289,6 +289,74 @@ describe("tabletop debugger", () => {
     expect(root.querySelector("[data-key='main.a']")?.getAttribute("style") ?? "").not.toContain("opacity");
     expect(document.querySelectorAll(".shift-bit").length).toBeGreaterThanOrEqual(8);
   });
+
+  it("explains every flag from the letter and its 0 or 1", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    for (const [key, sentence] of [
+      ["s", "S, Sign."],
+      ["z", "Z, Zero."],
+      ["h", "H, Half carry."],
+      ["pv", "P/V, Parity or overflow."],
+      ["n", "N, Subtract."],
+      ["c", "C, Carry."],
+    ] as const) {
+      const flag = root.querySelector(`[data-flag='${key}'][data-side='main']`);
+      expect(flag?.querySelector(".flag-name")?.textContent).toBe(key === "pv" ? "P/V" : key.toUpperCase());
+      expect(flag?.querySelector(".flag-state")?.textContent).toMatch(/^[01]$/);
+      expect(flag?.querySelector(".flag-bubble")?.textContent?.startsWith(sentence)).toBe(true);
+    }
+    expect(root.querySelector("[data-flag='c'] .flag-bubble")?.textContent).toBe(
+      "C, Carry. Set when an unsigned add or subtract does not fit, or when a shift or rotate pushes a bit out.",
+    );
+  });
+
+  it("pops SET into bits and returns A in the selected format", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    chooseExample(root, "bits");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "#last-instruction")).toBe("SET 0,A");
+    expect(text(root, "[data-key='main.a']")).toBe("01");
+    expect(root.querySelector("[data-key='main.a']")?.getAttribute("style")).toContain("opacity");
+    const chosen = document.querySelector(".shift-bit.chosen");
+    expect(chosen?.getAttribute("data-from-slot")).toBe("7");
+    expect(chosen?.textContent).toBe("0");
+    expect(chosen?.getAttribute("data-op")).toBe("set");
+    expect(root.querySelector("[data-flag='z'][data-side='main']")?.getAttribute("data-set")).toBe("0");
+    expect(root.querySelector("[data-flag='c'][data-side='main']")?.getAttribute("data-set")).toBe("0");
+
+    click(root, "#format-decimal");
+    expect(text(root, "[data-key='main.a']")).toBe("  1");
+  });
+
+  it("holds Z until BIT shows the opposite of the tested bit", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const editor = editorValue(root);
+    editor.value = ["        ORG 0100H", "        LD A, 00H", "        BIT 0, A", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("00");
+    expect(root.querySelector("[data-flag='z'][data-side='main']")?.getAttribute("data-set")).toBe("0");
+    expect(document.querySelector(".shift-bit.chosen")?.textContent).toBe("0");
+    expect(document.querySelector(".shift-bit[data-to='z']")?.textContent).toBe("1");
+
+    click(root, "#motion-toggle");
+    click(root, "#reset");
+    editor.value = ["        ORG 0100H", "        LD A, 01H", "        BIT 0, A", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("01");
+    expect(root.querySelector("[data-flag='z'][data-side='main']")?.getAttribute("data-set")).toBe("0");
+    expect(document.querySelector(".shift-bit")).toBeNull();
+  });
 });
 
 function flush(): Promise<void> {

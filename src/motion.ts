@@ -53,11 +53,27 @@ export interface ShiftMotion {
   parity: boolean;
 }
 
+export type BitOp = "set" | "res" | "bit";
+
+export interface BitMotion {
+  type: "bit";
+  anchor: { type: "reg"; name: RegName } | { type: "mem"; address: number };
+  before: number;
+  after: number;
+  /** 0 is the least significant bit. */
+  bit: number;
+  op: BitOp;
+  /** BIT sets Z to the opposite of the tested bit. SET and RES leave Z alone. */
+  zeroBefore: boolean;
+  zeroAfter: boolean;
+}
+
 export type MotionPlan =
   | { type: "none" }
   | { type: "swap"; group: "af" | "exx" }
   | { type: "travel"; moves: Travel[] }
-  | ShiftMotion;
+  | ShiftMotion
+  | BitMotion;
 
 export interface MotionFacts {
   mnemonic: string;
@@ -160,6 +176,10 @@ export function planAfterStep(base: MotionBase, machine: Machine): MotionPlan {
   if (shift !== undefined) {
     return shift;
   }
+  const bit = planBit(base, machine);
+  if (bit !== undefined) {
+    return bit;
+  }
   return attachStackLabel(planMotion({
     mnemonic,
     a: hi(af.af),
@@ -215,7 +235,7 @@ function attachStackLabel(plan: MotionPlan, machine: Machine, spBefore: number):
 }
 
 export function motionMemoryAddress(plan: MotionPlan): number | undefined {
-  if (plan.type === "shift" && plan.anchor.type === "mem") {
+  if ((plan.type === "shift" || plan.type === "bit") && plan.anchor.type === "mem") {
     return plan.anchor.address;
   }
   if (plan.type !== "travel") {
@@ -552,36 +572,69 @@ function rightTracks(
   return tracks;
 }
 
-function planShift(base: MotionBase, machine: Machine): ShiftMotion | undefined {
+function readCb(base: MotionBase): { op: number; memory: number | undefined } | undefined {
   const [b0, b1, b2, b3] = base.opcodes;
+  if (b0 === 0xcb) {
+    return { op: b1, memory: undefined };
+  }
+  if ((b0 === 0xdd || b0 === 0xfd) && b1 === 0xcb) {
+    const disp = b2 >= 0x80 ? b2 - 0x100 : b2;
+    const index = b0 === 0xdd ? base.ix : base.iy;
+    return { op: b3, memory: (index + disp) & 0xffff };
+  }
+  return undefined;
+}
+
+function cbAnchor(
+  field: number,
+  memory: number | undefined,
+  base: MotionBase,
+): ShiftMotion["anchor"] {
+  if (memory !== undefined || field === 6) {
+    return { type: "mem", address: memory !== undefined ? memory : base.hl & 0xffff };
+  }
+  return { type: "reg", name: SHIFT_REGS[field < 6 ? field : 6] };
+}
+
+function planShift(base: MotionBase, machine: Machine): ShiftMotion | undefined {
+  const [b0] = base.opcodes;
   if (b0 === 0x07 || b0 === 0x0f || b0 === 0x17 || b0 === 0x1f) {
     const kind: ShiftKind = b0 === 0x07 ? "rlc" : b0 === 0x0f ? "rrc" : b0 === 0x17 ? "rl" : "rr";
     return describeShift(kind, { type: "reg", name: "a" }, false, base, machine);
   }
+  const decoded = readCb(base);
+  if (decoded === undefined || (decoded.op & 0xc0) !== 0) {
+    return undefined;
+  }
+  const kind = SHIFT_KINDS[(decoded.op >> 3) & 7];
+  return describeShift(kind, cbAnchor(decoded.op & 7, decoded.memory, base), true, base, machine);
+}
 
-  let op = -1;
-  let memory: number | undefined;
-  if (b0 === 0xcb) {
-    op = b1;
-  } else if ((b0 === 0xdd || b0 === 0xfd) && b1 === 0xcb) {
-    op = b3;
-    const disp = b2 >= 0x80 ? b2 - 0x100 : b2;
-    const index = b0 === 0xdd ? base.ix : base.iy;
-    memory = (index + disp) & 0xffff;
-  } else {
+function planBit(base: MotionBase, machine: Machine): BitMotion | undefined {
+  const decoded = readCb(base);
+  if (decoded === undefined) {
     return undefined;
   }
-  if ((op & 0xc0) !== 0) {
+  const group = decoded.op & 0xc0;
+  const op: BitOp | undefined = group === 0x40 ? "bit" : group === 0x80 ? "res" : group === 0xc0 ? "set" : undefined;
+  if (op === undefined) {
     return undefined;
   }
-  const kind = SHIFT_KINDS[(op >> 3) & 7];
-  const field = op & 7;
-  if (memory !== undefined || field === 6) {
-    const address = memory !== undefined ? memory : base.hl & 0xffff;
-    return describeShift(kind, { type: "mem", address }, true, base, machine);
-  }
-  const name = SHIFT_REGS[field < 6 ? field : 6];
-  return describeShift(kind, { type: "reg", name }, true, base, machine);
+  const banks = machine.banks();
+  const afBank = banks.main.afActive ? banks.main : banks.alternate;
+  const flags = afBank.af & 0xff;
+  const anchor = cbAnchor(decoded.op & 7, decoded.memory, base);
+  const bytes = operandBytes(anchor, base, machine);
+  return {
+    type: "bit",
+    anchor,
+    before: bytes.before,
+    after: bytes.after,
+    bit: (decoded.op >> 3) & 7,
+    op,
+    zeroBefore: (base.af & 0x40) !== 0,
+    zeroAfter: (flags & 0x40) !== 0,
+  };
 }
 
 function describeShift(
@@ -593,23 +646,13 @@ function describeShift(
 ): ShiftMotion {
   const banks = machine.banks();
   const afBank = banks.main.afActive ? banks.main : banks.alternate;
-  const exxBank = banks.main.exxActive ? banks.main : banks.alternate;
   const flags = afBank.af & 0xff;
-  let before = 0;
-  let after = 0;
-  if (anchor.type === "reg") {
-    before = registerByte(anchor.name, base);
-    after = registerByte(anchor.name, { af: afBank.af, bc: exxBank.bc, de: exxBank.de, hl: exxBank.hl });
-  } else {
-    const write = machine.writes.find((item) => item.address === anchor.address);
-    before = (write === undefined ? machine.memory[anchor.address] : write.previous) & 0xff;
-    after = (write === undefined ? machine.memory[anchor.address] : write.value) & 0xff;
-  }
+  const bytes = operandBytes(anchor, base, machine);
   return {
     type: "shift",
     anchor,
-    before,
-    after,
+    before: bytes.before,
+    after: bytes.after,
     carryBefore: (base.af & 1) !== 0,
     carryAfter: (flags & 1) !== 0,
     kind,
@@ -617,6 +660,28 @@ function describeShift(
     sign: (flags & 0x80) !== 0,
     zero: (flags & 0x40) !== 0,
     parity: (flags & 0x04) !== 0,
+  };
+}
+
+function operandBytes(
+  anchor: ShiftMotion["anchor"],
+  base: MotionBase,
+  machine: Machine,
+): { before: number; after: number } {
+  if (anchor.type === "mem") {
+    const write = machine.writes.find((item) => item.address === anchor.address);
+    return {
+      before: (write === undefined ? machine.memory[anchor.address] : write.previous) & 0xff,
+      after: (write === undefined ? machine.memory[anchor.address] : write.value) & 0xff,
+    };
+  }
+  const banks = machine.banks();
+  const exxBank = banks.main.exxActive ? banks.main : banks.alternate;
+  const afBank = banks.main.afActive ? banks.main : banks.alternate;
+  const afterRegs = { af: afBank.af, bc: exxBank.bc, de: exxBank.de, hl: exxBank.hl };
+  return {
+    before: registerByte(anchor.name, base),
+    after: registerByte(anchor.name, afterRegs),
   };
 }
 

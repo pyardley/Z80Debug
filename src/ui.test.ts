@@ -398,6 +398,19 @@ describe("file menu", () => {
     expect(root.querySelector("#file-status")?.textContent).toBe("The browser kept this page open.");
     vi.useRealTimers();
   });
+
+  it("explains a flag from the letter and from its 0 or 1", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const carry = root.querySelector("[data-flag='c'][data-side='main']");
+    expect(carry?.querySelector(".flag-name")?.textContent).toBe("C");
+    expect(carry?.querySelector(".flag-state")?.textContent).toBe("0");
+    expect(carry?.querySelector(".flag-bubble")?.textContent).toBe(
+      "C, Carry. Set when an unsigned add or subtract does not fit, or when a shift or rotate pushes a bit out.",
+    );
+    expect(root.querySelectorAll(".flag-bubble")).toHaveLength(12);
+  });
 });
 
 function flush(): Promise<void> {

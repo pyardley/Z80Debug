@@ -23,6 +23,7 @@ import {
   saveFormat,
   type DisplayFormat,
 } from "./format";
+import { appendFlagParts, FLAG_BITS } from "./flags";
 import { Machine, type RegisterBank } from "./machine";
 import {
   captureMotionBase,
@@ -38,15 +39,6 @@ const UNTITLED = "Untitled";
 
 let detachChrome: (() => void) | undefined;
 let finishMotion: (() => void) | undefined;
-
-const FLAG_BITS: { key: string; label: string; mask: number }[] = [
-  { key: "s", label: "S", mask: 0x80 },
-  { key: "z", label: "Z", mask: 0x40 },
-  { key: "h", label: "H", mask: 0x10 },
-  { key: "pv", label: "P/V", mask: 0x04 },
-  { key: "n", label: "N", mask: 0x02 },
-  { key: "c", label: "C", mask: 0x01 },
-];
 
 function readDisplayFormat(): DisplayFormat {
   try {
@@ -80,7 +72,7 @@ export function mount(root: HTMLElement): void {
   let motionOn = true;
   let flagHold: {
     side: "main" | "alt";
-    carry: boolean;
+    carry?: boolean;
     sign?: boolean;
     zero?: boolean;
     parity?: boolean;
@@ -408,15 +400,18 @@ export function mount(root: HTMLElement): void {
     spotlight = motionMemoryAddress(plan);
     popConsole = plan.type === "travel" && plan.moves.some((move) => move.pop);
     const activeSide = machine.banks().main.afActive ? "main" : "alt";
-    flagHold = motionOn && plan.type === "shift"
-      ? {
+    flagHold = undefined;
+    if (motionOn && plan.type === "shift") {
+      flagHold = {
         side: activeSide,
         carry: plan.carryBefore,
         sign: plan.flagsFromResult ? (base.af & 0x80) !== 0 : undefined,
         zero: plan.flagsFromResult ? (base.af & 0x40) !== 0 : undefined,
         parity: plan.flagsFromResult ? (base.af & 0x04) !== 0 : undefined,
-      }
-      : undefined;
+      };
+    } else if (motionOn && plan.type === "bit" && plan.op === "bit") {
+      flagHold = { side: activeSide, zero: plan.zeroBefore };
+    }
     render();
     popConsole = false;
     const spAfter = machine.cpu.regs.sp & 0xffff;
@@ -432,7 +427,7 @@ export function mount(root: HTMLElement): void {
         stackMark: stackMoved && markFrom !== undefined && markNow !== null
           ? { from: markFrom, live: markNow }
           : undefined,
-        onSettled: plan.type === "shift"
+        onSettled: plan.type === "shift" || (plan.type === "bit" && plan.op === "bit")
           ? () => {
             flagHold = undefined;
             render();
@@ -885,7 +880,6 @@ export function mount(root: HTMLElement): void {
     for (const flag of FLAG_BITS) {
       const bit = document.createElement("span");
       bit.className = "flag";
-      bit.textContent = flag.label;
       bit.dataset.flag = flag.key;
       bit.dataset.side = prefix;
       const held = heldFlag(prefix, flag.key);
@@ -897,6 +891,7 @@ export function mount(root: HTMLElement): void {
       if (held === undefined && machine.changed.has(`${prefix}.flag.${flag.key}`)) {
         bit.classList.add("changed");
       }
+      appendFlagParts(bit, flag.key, on);
       row.append(bit);
     }
     return row;

@@ -6,6 +6,7 @@ import {
   planAfterStep,
   planMotion,
   shiftTracks,
+  type BitMotion,
   type MotionFacts,
   type MotionPlan,
   type ShiftKind,
@@ -434,5 +435,80 @@ describe("shift and rotate motion", () => {
     expect(landed("sll", 0x80, false)).toEqual({ value: 0x01, carry: true, wrapped: false });
     expect(landed("sra", 0x81, false)).toEqual({ value: 0xc0, carry: true, wrapped: false });
     expect(landed("srl", 0x81, false)).toEqual({ value: 0x40, carry: true, wrapped: false });
+  });
+});
+
+function bitNamed(seen: { mnemonic: string; plan: MotionPlan; af: number }[], mnemonic: string): BitMotion & { af: number } {
+  const step = seen.find((item) => item.mnemonic === mnemonic);
+  expect(step?.plan.type).toBe("bit");
+  return { ...(step?.plan as BitMotion), af: step?.af ?? 0 };
+}
+
+describe("bit set, reset, and test", () => {
+  it("sets and resets a bit without changing flags, and BIT takes Z from the opposite bit", () => {
+    const seen = trace(`
+      ORG 0100H
+      LD A, 00H
+      SCF
+      SET 0, A
+      RES 0, A
+      BIT 0, A
+      LD A, 01H
+      BIT 0, A
+      HALT
+    `);
+    const set = bitNamed(seen, "SET 0,A");
+    expect(set).toMatchObject({
+      op: "set",
+      bit: 0,
+      before: 0x00,
+      after: 0x01,
+      anchor: { type: "reg", name: "a" },
+      zeroBefore: false,
+      zeroAfter: false,
+    });
+    expect(set.af & 0xff).toBe(0x01);
+    const res = bitNamed(seen, "RES 0,A");
+    expect(res).toMatchObject({ op: "res", bit: 0, before: 0x01, after: 0x00 });
+    expect(res.af & 0xff).toBe(0x01);
+    const bitClear = bitNamed(seen, "BIT 0,A");
+    expect(bitClear).toMatchObject({ op: "bit", bit: 0, before: 0x00, after: 0x00, zeroAfter: true });
+    const bitSet = seen.filter((item) => item.mnemonic === "BIT 0,A")[1];
+    expect(bitSet?.plan).toMatchObject({ op: "bit", bit: 0, before: 0x01, after: 0x01, zeroAfter: false });
+    expect((bitSet?.af ?? 0) & 0xff & 0x40).toBe(0);
+    expect((bitSet?.af ?? 0) >> 8).toBe(0x01);
+  });
+
+  it("pops the memory byte for BIT, SET, and RES, including an index", () => {
+    const machine = new Machine();
+    const source = `
+      ORG 0100H
+      LD HL, 0C000H
+      LD (HL), 01H
+      BIT 0, (HL)
+      LD IX, 4000H
+      LD (IX+1), 00H
+      SET 0, (IX+1)
+      LD IY, 5000H
+      LD (IY+0FFH), 01H
+      RES 0, (IY+0FFH)
+      HALT
+    `;
+    expect(machine.assemble(source), JSON.stringify(machine.errors)).toBe(true);
+    const seen: { mnemonic: string; plan: MotionPlan }[] = [];
+    while (!machine.halted && machine.steps < 20) {
+      const base = captureMotionBase(machine);
+      machine.step();
+      seen.push({ mnemonic: machine.lastInstruction, plan: planAfterStep(base, machine) });
+    }
+    expect(machine.memory[0xc000]).toBe(0x01);
+    expect(machine.memory[0x4001]).toBe(0x01);
+    expect(machine.memory[0x4fff]).toBe(0x00);
+    const bits = seen.filter((item) => item.plan.type === "bit").map((item) => item.plan);
+    expect(bits).toEqual([
+      expect.objectContaining({ op: "bit", anchor: { type: "mem", address: 0xc000 }, before: 0x01, after: 0x01, zeroAfter: false }),
+      expect.objectContaining({ op: "set", anchor: { type: "mem", address: 0x4001 }, before: 0x00, after: 0x01, bit: 0 }),
+      expect.objectContaining({ op: "res", anchor: { type: "mem", address: 0x4fff }, before: 0x01, after: 0x00, bit: 0 }),
+    ]);
   });
 });

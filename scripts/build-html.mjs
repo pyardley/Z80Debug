@@ -128,6 +128,8 @@ function assertBundle(code) {
     "Top of stack",
     "stack.asm",
     "shifts.asm",
+    "bits.asm",
+    "DAA uses this to adjust BCD.",
   ]) {
     if (!code.includes(needle)) {
       throw new Error(`bundle missing ${JSON.stringify(needle)}`);
@@ -245,6 +247,8 @@ function assertPlayBundle(code) {
     "Top of stack",
     "stack.asm",
     "shifts.asm",
+    "bits.asm",
+    "DAA uses this to adjust BCD.",
   ]) {
     if (!code.includes(needle)) {
       throw new Error(`play bundle missing ${JSON.stringify(needle)}`);
