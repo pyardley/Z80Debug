@@ -129,10 +129,10 @@ h3 {
 
 .desk {
   display: grid;
-  grid-template-columns: minmax(34rem, 1fr) minmax(22rem, 32rem);
-  gap: 0.9rem;
+  grid-template-columns: minmax(34rem, 1fr) minmax(22rem, 48rem);
+  gap: 0.7rem;
   align-items: start;
-  width: min(100% - 1.2rem, 1680px);
+  width: min(100% - 0.8rem, 1880px);
   margin: 0.7rem auto 1.2rem;
 }
 
@@ -727,12 +727,21 @@ textarea {
 
 .dump-row {
   display: flex;
-  gap: 0.45rem;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
   align-items: baseline;
   margin: 0.08rem 0;
+  white-space: nowrap;
 }
 
-.bytes { display: inline-flex; gap: 0.28rem; flex-wrap: wrap; }
+.bytes { display: inline-flex; gap: 0.1rem; flex-wrap: nowrap; }
+.dump .addr,
+.dump .mem-byte,
+.dump .ascii {
+  font-size: 13px;
+}
+.dump .mem-byte { padding: 0 0.05rem; }
+.dump .addr { padding: 0; }
 .addr { color: #6b5340; background: transparent; box-shadow: none; }
 .ascii { color: #3f4a3f; }
 .writes p { margin: 0.12rem 0 0.28rem; }
