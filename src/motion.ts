@@ -1,4 +1,5 @@
 import { hi } from "z80-base";
+import type { DisplayFormat } from "./format";
 import type { Machine, MemoryWrite } from "./machine";
 import { formatStackLabel } from "./stack";
 
@@ -7,6 +8,12 @@ export const MOTION_MS = 520;
 
 /** Pop the byte into bits, slide them, and land the leaving bit on Carry. */
 export const SHIFT_MS = 900;
+
+/** Pop both bytes into bits, combine each column, then land the result. */
+export const LOGIC_MS = 1200;
+
+/** Roll the digits that are on screen, then show the register again. */
+export const COUNTER_MS = 1100;
 
 export type ShiftKind = "rlc" | "rrc" | "rl" | "rr" | "sla" | "sra" | "sll" | "srl";
 
@@ -53,6 +60,40 @@ export interface ShiftMotion {
   parity: boolean;
 }
 
+export type LogicOp = "and" | "or" | "xor";
+
+export interface LogicMotion {
+  type: "logic";
+  op: LogicOp;
+  /** Accumulator before the instruction. */
+  left: number;
+  /** The other operand. */
+  right: number;
+  result: number;
+  other: { type: "reg"; name: RegName } | { type: "mem"; address: number } | { type: "source" };
+  dest: { type: "reg"; name: "a" };
+}
+
+export type CounterDir = "inc" | "dec";
+
+export interface CounterMotion {
+  type: "counter";
+  dir: CounterDir;
+  width: 8 | 16;
+  anchor: { type: "reg"; name: RegName } | { type: "mem"; address: number };
+  before: number;
+  after: number;
+}
+
+export interface CounterWheel {
+  from: string;
+  to: string;
+  /** The wheel passes the end of its alphabet, so the next wheel steps. */
+  turns: boolean;
+  /** Glyphs visited, including the digit it starts on. */
+  path: string[];
+}
+
 export type BitOp = "set" | "res" | "bit";
 
 export interface BitMotion {
@@ -73,7 +114,9 @@ export type MotionPlan =
   | { type: "swap"; group: "af" | "exx" }
   | { type: "travel"; moves: Travel[] }
   | ShiftMotion
-  | BitMotion;
+  | BitMotion
+  | LogicMotion
+  | CounterMotion;
 
 export interface MotionFacts {
   mnemonic: string;
@@ -180,6 +223,14 @@ export function planAfterStep(base: MotionBase, machine: Machine): MotionPlan {
   if (bit !== undefined) {
     return bit;
   }
+  const logic = planLogic(base, machine);
+  if (logic !== undefined) {
+    return logic;
+  }
+  const counter = planCounter(base, machine);
+  if (counter !== undefined) {
+    return counter;
+  }
   return attachStackLabel(planMotion({
     mnemonic,
     a: hi(af.af),
@@ -235,8 +286,11 @@ function attachStackLabel(plan: MotionPlan, machine: Machine, spBefore: number):
 }
 
 export function motionMemoryAddress(plan: MotionPlan): number | undefined {
-  if ((plan.type === "shift" || plan.type === "bit") && plan.anchor.type === "mem") {
+  if ((plan.type === "shift" || plan.type === "bit" || plan.type === "counter") && plan.anchor.type === "mem") {
     return plan.anchor.address;
+  }
+  if (plan.type === "logic" && plan.other.type === "mem") {
+    return plan.other.address;
   }
   if (plan.type !== "travel") {
     return undefined;
@@ -704,6 +758,257 @@ function registerByte(
       return (regs.hl >> 8) & 0xff;
     case "l":
       return regs.hl & 0xff;
+    default:
+      return 0;
+  }
+}
+
+const BYTE_FIELDS: readonly (RegName | "mem")[] = ["b", "c", "d", "e", "h", "l", "mem", "a"];
+const PAIR_FIELDS: readonly RegName[] = ["bc", "de", "hl", "sp"];
+
+/** Eight bits, slot 0 at the left (bit 7). The result row is the operation applied to each column. */
+export function logicRows(op: LogicOp, left: number, right: number): { left: Array<0 | 1>; right: Array<0 | 1>; result: Array<0 | 1> } {
+  const rows: { left: Array<0 | 1>; right: Array<0 | 1>; result: Array<0 | 1> } = { left: [], right: [], result: [] };
+  for (let slot = 0; slot < 8; slot++) {
+    const bit = ((left >> (7 - slot)) & 1) as 0 | 1;
+    const other = ((right >> (7 - slot)) & 1) as 0 | 1;
+    const value = op === "and" ? bit & other : op === "or" ? bit | other : bit ^ other;
+    rows.left.push(bit);
+    rows.right.push(other);
+    rows.result.push(value as 0 | 1);
+  }
+  return rows;
+}
+
+/** Digits of the selected format. ASCII rolls as hex. Decimal is zero-padded so every wheel is 0–9. */
+export function counterDigits(
+  before: number,
+  after: number,
+  format: DisplayFormat,
+  width: 8 | 16,
+  dir: CounterDir,
+): { alphabet: string; from: string; to: string; wheels: CounterWheel[] } {
+  const alphabet = format === "decimal" ? "0123456789" : format === "binary" ? "01" : "0123456789ABCDEF";
+  const places = format === "decimal" ? (width === 8 ? 3 : 5) : format === "binary" ? width : (width === 8 ? 2 : 4);
+  const radix = format === "decimal" ? 10 : format === "binary" ? 2 : 16;
+  const mask = width === 8 ? 0xff : 0xffff;
+  const from = (before & mask).toString(radix).toUpperCase().padStart(places, "0");
+  const to = (after & mask).toString(radix).toUpperCase().padStart(places, "0");
+  const wheels = [...from].map((glyph, index) => {
+    const next = to[index] ?? glyph;
+    const path = rollPath(alphabet, glyph, next, dir);
+    return { from: glyph, to: next, turns: pathCrosses(alphabet, glyph, next, dir), path };
+  });
+  return { alphabet, from, to, wheels };
+}
+
+function rollPath(alphabet: string, from: string, to: string, dir: CounterDir): string[] {
+  const start = alphabet.indexOf(from);
+  const end = alphabet.indexOf(to);
+  if (start < 0 || end < 0 || start === end) {
+    return [from];
+  }
+  const path = [from];
+  const step = dir === "inc" ? 1 : -1;
+  let index = start;
+  while (alphabet[index] !== to && path.length <= alphabet.length) {
+    index = (index + step + alphabet.length) % alphabet.length;
+    path.push(alphabet[index] ?? to);
+  }
+  return path;
+}
+
+function pathCrosses(alphabet: string, from: string, to: string, dir: CounterDir): boolean {
+  const start = alphabet.indexOf(from);
+  const end = alphabet.indexOf(to);
+  if (start < 0 || end < 0 || start === end) {
+    return false;
+  }
+  return dir === "inc" ? end < start : end > start;
+}
+
+interface OpcodeView {
+  op: number;
+  imm?: number;
+  disp?: number;
+  index?: "ix" | "iy";
+}
+
+function readOpcode(base: MotionBase): OpcodeView | undefined {
+  const [b0, b1, b2] = base.opcodes;
+  if (b0 === 0xed || b0 === 0xcb) {
+    return undefined;
+  }
+  if (b0 === 0xdd || b0 === 0xfd) {
+    if (b1 === 0xcb || b1 === 0xed || b1 === 0xdd || b1 === 0xfd) {
+      return undefined;
+    }
+    const index = b0 === 0xdd ? "ix" : "iy";
+    if (indexedMemoryOpcode(b1)) {
+      return { op: b1, disp: b2 >= 0x80 ? b2 - 0x100 : b2, index };
+    }
+    return { op: b1, index, imm: immediateLogicOpcode(b1) ? b2 : undefined };
+  }
+  return { op: b0, imm: immediateLogicOpcode(b0) ? b1 : undefined };
+}
+
+function indexedMemoryOpcode(op: number): boolean {
+  return op === 0x34 || op === 0x35 || (op & 0xc7) === 0x86;
+}
+
+function immediateLogicOpcode(op: number): boolean {
+  return op === 0xe6 || op === 0xee || op === 0xf6;
+}
+
+function logicKind(op: number): LogicOp | undefined {
+  if ((op >= 0xa0 && op <= 0xa7) || op === 0xe6) {
+    return "and";
+  }
+  if ((op >= 0xa8 && op <= 0xaf) || op === 0xee) {
+    return "xor";
+  }
+  if ((op >= 0xb0 && op <= 0xb7) || op === 0xf6) {
+    return "or";
+  }
+  return undefined;
+}
+
+function planLogic(base: MotionBase, machine: Machine): LogicMotion | undefined {
+  const decoded = readOpcode(base);
+  if (decoded === undefined) {
+    return undefined;
+  }
+  const op = logicKind(decoded.op);
+  if (op === undefined) {
+    return undefined;
+  }
+  const banks = machine.banks();
+  const afBank = banks.main.afActive ? banks.main : banks.alternate;
+  const left = (base.af >> 8) & 0xff;
+  const result = (afBank.af >> 8) & 0xff;
+  if (decoded.imm !== undefined && (decoded.op === 0xe6 || decoded.op === 0xee || decoded.op === 0xf6)) {
+    return { type: "logic", op, left, right: decoded.imm & 0xff, result, other: { type: "source" }, dest: { type: "reg", name: "a" } };
+  }
+  const field = decoded.op & 7;
+  if (decoded.index !== undefined && (field === 4 || field === 5)) {
+    return undefined;
+  }
+  if (field === 6) {
+    const address = memoryAddress(decoded, base);
+    const bytes = operandBytes({ type: "mem", address }, base, machine);
+    return {
+      type: "logic",
+      op,
+      left,
+      right: bytes.before,
+      result,
+      other: { type: "mem", address },
+      dest: { type: "reg", name: "a" },
+    };
+  }
+  const name = BYTE_FIELDS[field];
+  if (name === undefined || name === "mem") {
+    return undefined;
+  }
+  return {
+    type: "logic",
+    op,
+    left,
+    right: registerByte(name, base),
+    result,
+    other: { type: "reg", name },
+    dest: { type: "reg", name: "a" },
+  };
+}
+
+function planCounter(base: MotionBase, machine: Machine): CounterMotion | undefined {
+  const decoded = readOpcode(base);
+  if (decoded === undefined) {
+    return undefined;
+  }
+  const op = decoded.op;
+  const inc8 = (op & 0xc7) === 0x04;
+  const dec8 = (op & 0xc7) === 0x05;
+  const inc16 = (op & 0xcf) === 0x03;
+  const dec16 = (op & 0xcf) === 0x0b;
+  if (!inc8 && !dec8 && !inc16 && !dec16) {
+    return undefined;
+  }
+  const dir: CounterDir = inc8 || inc16 ? "inc" : "dec";
+  if (inc8 || dec8) {
+    const field = (op >> 3) & 7;
+    if (decoded.index !== undefined && (field === 4 || field === 5)) {
+      return undefined;
+    }
+    if (field === 6) {
+      const address = memoryAddress(decoded, base);
+      const bytes = operandBytes({ type: "mem", address }, base, machine);
+      return { type: "counter", dir, width: 8, anchor: { type: "mem", address }, before: bytes.before, after: bytes.after };
+    }
+    const name = BYTE_FIELDS[field];
+    if (name === undefined || name === "mem") {
+      return undefined;
+    }
+    const banks = machine.banks();
+    const exxBank = banks.main.exxActive ? banks.main : banks.alternate;
+    const afBank = banks.main.afActive ? banks.main : banks.alternate;
+    return {
+      type: "counter",
+      dir,
+      width: 8,
+      anchor: { type: "reg", name },
+      before: registerByte(name, base),
+      after: registerByte(name, { af: afBank.af, bc: exxBank.bc, de: exxBank.de, hl: exxBank.hl }),
+    };
+  }
+  const pair = (op >> 4) & 3;
+  const name: RegName = decoded.index !== undefined && pair === 2 ? decoded.index : PAIR_FIELDS[pair];
+  const after = activeWords(machine);
+  return {
+    type: "counter",
+    dir,
+    width: 16,
+    anchor: { type: "reg", name },
+    before: wordValue(name, base),
+    after: wordValue(name, after),
+  };
+}
+
+function memoryAddress(decoded: OpcodeView, base: MotionBase): number {
+  if (decoded.index === undefined) {
+    return base.hl & 0xffff;
+  }
+  const index = decoded.index === "ix" ? base.ix : base.iy;
+  return (index + (decoded.disp ?? 0)) & 0xffff;
+}
+
+function activeWords(machine: Machine): { bc: number; de: number; hl: number; sp: number; ix: number; iy: number } {
+  const banks = machine.banks();
+  const exx = banks.main.exxActive ? banks.main : banks.alternate;
+  return {
+    bc: exx.bc & 0xffff,
+    de: exx.de & 0xffff,
+    hl: exx.hl & 0xffff,
+    sp: machine.cpu.regs.sp & 0xffff,
+    ix: machine.cpu.regs.ix & 0xffff,
+    iy: machine.cpu.regs.iy & 0xffff,
+  };
+}
+
+function wordValue(name: RegName, regs: { bc: number; de: number; hl: number; sp: number; ix: number; iy: number }): number {
+  switch (name) {
+    case "bc":
+      return regs.bc & 0xffff;
+    case "de":
+      return regs.de & 0xffff;
+    case "hl":
+      return regs.hl & 0xffff;
+    case "sp":
+      return regs.sp & 0xffff;
+    case "ix":
+      return regs.ix & 0xffff;
+    case "iy":
+      return regs.iy & 0xffff;
     default:
       return 0;
   }

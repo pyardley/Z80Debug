@@ -679,7 +679,7 @@ textarea {
 .errors { margin-top: 0.4rem; color: #7a2e16; }
 .errors ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
 
-.shift-bit {
+.shift-bit, .logic-bit {
   position: fixed;
   left: 0;
   top: 0;
@@ -700,9 +700,118 @@ textarea {
   pointer-events: none;
 }
 
-.shift-bit[data-value="1"] {
+.shift-bit[data-value="1"], .logic-bit[data-value="1"] {
   background: #ffe08a;
   border-color: #9c2f1a;
+}
+
+.logic-bit[data-row="result"] {
+  background: #e7f6e4;
+  border-color: #1f4d32;
+}
+
+.logic-bit[data-row="result"][data-value="1"] {
+  background: #b7e3a8;
+  border-color: #1f4d32;
+}
+
+.logic-board, .counter-board {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 81;
+  background: #fffaf2;
+  border: 4px solid #6b3e22;
+  border-radius: 16px;
+  box-shadow: 0 10px 0 rgba(60, 30, 10, 0.18);
+  pointer-events: none;
+}
+
+.counter-op {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 85;
+  width: 72px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: #fffaf2;
+  color: #140e08;
+  border: 3px solid #6b3e22;
+  border-radius: 999px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+.logic-op, .logic-result {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 83;
+  display: grid;
+  place-items: center;
+  background: #fffaf2;
+  color: #140e08;
+  border: 3px solid #1f4d32;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.logic-op {
+  width: 72px;
+  height: 28px;
+  border-radius: 999px;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.logic-result {
+  min-width: 52px;
+  height: 36px;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  font-size: 20px;
+  box-shadow: 0 8px 0 rgba(60, 30, 10, 0.18);
+}
+
+.counter-roll {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 82;
+  pointer-events: none;
+}
+
+.counter-wheel {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 84;
+  overflow: hidden;
+  background: #fffaf2;
+  color: #140e08;
+  border: 3px solid #6b3e22;
+  border-radius: 8px;
+  box-shadow: 0 6px 0 rgba(60, 30, 10, 0.2);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 800;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.counter-strip {
+  display: flex;
+  flex-direction: column;
+}
+
+.counter-glyph {
+  display: grid;
+  place-items: center;
 }
 
 .travel-token {

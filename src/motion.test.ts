@@ -3,10 +3,14 @@ import { exampleById } from "./examples";
 import { Machine } from "./machine";
 import {
   captureMotionBase,
+  counterDigits,
+  logicRows,
   planAfterStep,
   planMotion,
   shiftTracks,
   type BitMotion,
+  type CounterMotion,
+  type LogicMotion,
   type MotionFacts,
   type MotionPlan,
   type ShiftKind,
@@ -510,5 +514,157 @@ describe("bit set, reset, and test", () => {
       expect.objectContaining({ op: "set", anchor: { type: "mem", address: 0x4001 }, before: 0x00, after: 0x01, bit: 0 }),
       expect.objectContaining({ op: "res", anchor: { type: "mem", address: 0x4fff }, before: 0x01, after: 0x00, bit: 0 }),
     ]);
+  });
+});
+
+function logicNamed(seen: { mnemonic: string; plan: MotionPlan }[], mnemonic: string): LogicMotion {
+  const step = seen.find((item) => item.mnemonic === mnemonic);
+  expect(step?.plan.type).toBe("logic");
+  return step?.plan as LogicMotion;
+}
+
+describe("logical operations", () => {
+  it("combines each bit of AND, OR, and XOR", () => {
+    expect(logicRows("and", 0xf0, 0x0f).result.join("")).toBe("00000000");
+    expect(logicRows("or", 0xf0, 0x0f).result.join("")).toBe("11111111");
+    expect(logicRows("xor", 0xff, 0x0f).result.join("")).toBe("11110000");
+    const seen = trace(`
+      ORG 0100H
+      LD L, 0FH
+      LD A, 0F0H
+      AND L
+      LD A, 0F0H
+      OR L
+      LD A, 0FFH
+      XOR L
+      LD A, 0F0H
+      AND 0FH
+      LD HL, 0C000H
+      LD (HL), 0FH
+      LD A, 0F0H
+      AND (HL)
+      LD IX, 4000H
+      LD (IX+1), 0F0H
+      LD A, 0FFH
+      XOR (IX+1)
+      LD IY, 5000H
+      LD (IY+0FFH), 0FH
+      LD A, 0F0H
+      OR (IY+0FFH)
+      ADD A, L
+      CP L
+      HALT
+    `);
+    expect(logicNamed(seen, "AND A,L")).toMatchObject({
+      op: "and", left: 0xf0, right: 0x0f, result: 0x00, other: { type: "reg", name: "l" },
+    });
+    expect(logicNamed(seen, "OR A,L")).toMatchObject({ op: "or", left: 0xf0, right: 0x0f, result: 0xff });
+    expect(logicNamed(seen, "XOR A,L")).toMatchObject({ op: "xor", left: 0xff, right: 0x0f, result: 0xf0 });
+    expect(logicNamed(seen, "AND 0X0F")).toMatchObject({
+      op: "and", right: 0x0f, result: 0x00, other: { type: "source" },
+    });
+    expect(logicNamed(seen, "AND A,(HL)")).toMatchObject({
+      op: "and", other: { type: "mem", address: 0xc000 }, right: 0x0f, result: 0x00,
+    });
+    expect(logicNamed(seen, "XOR A,(IX+0X01)")).toMatchObject({
+      op: "xor", other: { type: "mem", address: 0x4001 }, left: 0xff, right: 0xf0, result: 0x0f,
+    });
+    expect(logicNamed(seen, "OR A,(IY+0XFF)")).toMatchObject({
+      op: "or", other: { type: "mem", address: 0x4fff }, left: 0xf0, right: 0x0f, result: 0xff,
+    });
+    expect(seen.find((item) => item.mnemonic === "ADD A,L")?.plan.type).toBe("none");
+    expect(seen.find((item) => item.mnemonic === "CP L")?.plan.type).toBe("none");
+  });
+});
+
+function counterNamed(seen: { mnemonic: string; plan: MotionPlan }[], mnemonic: string): CounterMotion {
+  const matches = seen.filter((item) => item.mnemonic === mnemonic && item.plan.type === "counter");
+  expect(matches.length).toBeGreaterThan(0);
+  return matches[0]?.plan as CounterMotion;
+}
+
+describe("increment and decrement wheels", () => {
+  it("rolls hex, decimal, binary, and ASCII digits, including a carry into the next wheel", () => {
+    expect(counterDigits(0x0f, 0x10, "hex", 8, "inc")).toMatchObject({
+      from: "0F",
+      to: "10",
+      wheels: [
+        { from: "0", to: "1", turns: false },
+        { from: "F", to: "0", turns: true },
+      ],
+    });
+    expect(counterDigits(0x00ff, 0x0100, "hex", 16, "inc")).toMatchObject({ from: "00FF", to: "0100" });
+    expect(counterDigits(0x10, 0x0f, "hex", 8, "dec").wheels[1]).toMatchObject({ from: "0", to: "F", turns: true });
+    expect(counterDigits(9, 10, "decimal", 8, "inc")).toMatchObject({
+      from: "009",
+      to: "010",
+      wheels: [
+        { from: "0", to: "0", turns: false },
+        { from: "0", to: "1", turns: false },
+        { from: "9", to: "0", turns: true },
+      ],
+    });
+    expect(counterDigits(1, 2, "binary", 8, "inc").from).toBe("00000001");
+    expect(counterDigits(1, 2, "binary", 8, "inc").to).toBe("00000010");
+    expect(counterDigits(0x41, 0x42, "ascii", 8, "inc")).toMatchObject({ from: "41", to: "42" });
+    expect(counterDigits(0x00, 0xff, "hex", 8, "dec")).toMatchObject({ from: "00", to: "FF" });
+  });
+
+  it("plans 8-bit and 16-bit INC and DEC, including memory and index operands", () => {
+    const seen = trace(`
+      ORG 0100H
+      LD A, 0FH
+      INC A
+      DEC A
+      LD HL, 00FFH
+      INC HL
+      DEC HL
+      LD BC, 0001H
+      DEC BC
+      LD SP, 0000H
+      INC SP
+      LD IX, 00FFH
+      INC IX
+      LD IY, 0100H
+      DEC IY
+      LD HL, 0C000H
+      LD (HL), 0FH
+      INC (HL)
+      LD IX, 4000H
+      LD (IX+1), 0FH
+      DEC (IX+1)
+      LD IY, 5000H
+      LD (IY+0FFH), 10H
+      INC (IY+0FFH)
+      HALT
+    `);
+    expect(counterNamed(seen, "INC A")).toMatchObject({
+      dir: "inc", width: 8, before: 0x0f, after: 0x10, anchor: { type: "reg", name: "a" },
+    });
+    expect(counterNamed(seen, "DEC A")).toMatchObject({ dir: "dec", before: 0x10, after: 0x0f });
+    expect(counterNamed(seen, "INC HL")).toMatchObject({
+      dir: "inc", width: 16, before: 0x00ff, after: 0x0100, anchor: { type: "reg", name: "hl" },
+    });
+    expect(counterNamed(seen, "DEC BC")).toMatchObject({
+      dir: "dec", width: 16, before: 0x0001, after: 0x0000, anchor: { type: "reg", name: "bc" },
+    });
+    expect(counterNamed(seen, "INC SP")).toMatchObject({
+      dir: "inc", width: 16, before: 0, after: 1, anchor: { type: "reg", name: "sp" },
+    });
+    expect(counterNamed(seen, "INC IX")).toMatchObject({
+      dir: "inc", width: 16, before: 0x00ff, after: 0x0100, anchor: { type: "reg", name: "ix" },
+    });
+    expect(counterNamed(seen, "DEC IY")).toMatchObject({
+      dir: "dec", width: 16, before: 0x0100, after: 0x00ff, anchor: { type: "reg", name: "iy" },
+    });
+    expect(counterNamed(seen, "INC (HL)")).toMatchObject({
+      dir: "inc", width: 8, before: 0x0f, after: 0x10, anchor: { type: "mem", address: 0xc000 },
+    });
+    expect(counterNamed(seen, "DEC (IX+0X01)")).toMatchObject({
+      dir: "dec", before: 0x0f, after: 0x0e, anchor: { type: "mem", address: 0x4001 },
+    });
+    expect(counterNamed(seen, "INC (IY+0XFF)")).toMatchObject({
+      dir: "inc", before: 0x10, after: 0x11, anchor: { type: "mem", address: 0x4fff },
+    });
   });
 });

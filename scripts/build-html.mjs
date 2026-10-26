@@ -129,11 +129,15 @@ function assertBundle(code) {
     "stack.asm",
     "shifts.asm",
     "bits.asm",
+    "logic.asm",
     "DAA uses this to adjust BCD.",
   ]) {
     if (!code.includes(needle)) {
       throw new Error(`bundle missing ${JSON.stringify(needle)}`);
     }
+  }
+  if (code.includes("logic-bit") || code.includes("counter-wheel")) {
+    throw new Error("plain bundle includes the toy logic or counter animation");
   }
 }
 
@@ -248,6 +252,9 @@ function assertPlayBundle(code) {
     "stack.asm",
     "shifts.asm",
     "bits.asm",
+    "logic.asm",
+    "logic-bit",
+    "counter-wheel",
     "DAA uses this to adjust BCD.",
   ]) {
     if (!code.includes(needle)) {
