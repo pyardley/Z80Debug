@@ -424,7 +424,7 @@ describe("tabletop debugger", () => {
       return;
     }
     expect(slider.value).toBe("1");
-    expect(slider.min).toBe("0.25");
+    expect(slider.min).toBe("0.1");
     expect(slider.max).toBe("2");
     expect(text(root, "#motion-speed-readout")).toBe("1×");
     expect(root.querySelector("#motion-toggle")?.nextElementSibling).toBe(slider.parentElement);
@@ -435,15 +435,15 @@ describe("tabletop debugger", () => {
     });
     expect(durations).toContain(MOTION_MS);
 
-    slider.value = "0.25";
+    slider.value = "0.1";
     slider.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(text(root, "#motion-speed-readout")).toBe("0.25×");
-    expect(localStorage.getItem("z80debug.animationSpeed")).toBe("0.25");
+    expect(text(root, "#motion-speed-readout")).toBe("0.1×");
+    expect(localStorage.getItem("z80debug.animationSpeed")).toBe("0.1");
     click(root, "#reset");
     const slow = captureDurations(() => {
       click(root, "#step");
     });
-    expect(slow).toContain(scaledMs(MOTION_MS, 0.25));
+    expect(slow).toContain(scaledMs(MOTION_MS, 0.1));
     expect(Math.max(...slow)).toBeGreaterThan(Math.max(...durations));
 
     const editor = editorValue(root);
@@ -453,7 +453,7 @@ describe("tabletop debugger", () => {
     const rolled = captureDurations(() => {
       click(root, "#step");
     });
-    expect(rolled).toContain(scaledMs(COUNTER_MS, 0.25));
+    expect(rolled).toContain(scaledMs(COUNTER_MS, 0.1));
 
     click(root, "#motion-toggle");
     click(root, "#reset");
@@ -463,6 +463,20 @@ describe("tabletop debugger", () => {
     click(root, "#step");
     expect(text(root, "[data-key='main.a']")).toBe("10");
     expect(document.querySelector(".counter-wheel")).toBeNull();
+  });
+
+  it("keeps a saved speed that sits between 0.1× and 2×", () => {
+    localStorage.setItem("z80debug.animationSpeed", "0.25");
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const slider = root.querySelector("#motion-speed");
+    expect(slider).toBeInstanceOf(HTMLInputElement);
+    if (!(slider instanceof HTMLInputElement)) {
+      return;
+    }
+    expect(slider.value).toBe("0.25");
+    expect(text(root, "#motion-speed-readout")).toBe("0.25×");
   });
 
   it("stays at 1× when localStorage throws", () => {

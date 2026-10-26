@@ -531,13 +531,14 @@ function logicNamed(seen: { mnemonic: string; plan: MotionPlan }[], mnemonic: st
 describe("animation speed", () => {
   it("keeps 1× as the built-in pace and stretches or shortens every duration", () => {
     expect(clampSpeed(Number.NaN)).toBe(1);
-    expect(clampSpeed(0)).toBe(0.25);
+    expect(clampSpeed(0)).toBe(0.1);
     expect(clampSpeed(9)).toBe(2);
     expect(scaledMs(SHIFT_MS, 1)).toBe(SHIFT_MS);
-    expect(scaledMs(520, 0.25)).toBe(2080);
+    expect(scaledMs(520, 0.1)).toBe(5200);
     expect(scaledMs(900, 2)).toBe(450);
-    expect(scaledMs(1100, 0.25)).toBe(4400);
+    expect(scaledMs(1100, 0.1)).toBe(11000);
     expect(scaledMs(1200, 2)).toBe(600);
+    expect(scaledMs(520, 0.25)).toBe(2080);
     const storage = new Map<string, string>();
     const memory = {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -548,6 +549,8 @@ describe("animation speed", () => {
     expect(loadSpeed(memory)).toBe(1);
     saveSpeed(memory, 0.25);
     expect(loadSpeed(memory)).toBe(0.25);
+    saveSpeed(memory, 0.1);
+    expect(loadSpeed(memory)).toBe(0.1);
     saveSpeed(memory, 4);
     expect(loadSpeed(memory)).toBe(2);
   });
