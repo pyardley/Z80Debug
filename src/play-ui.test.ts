@@ -685,6 +685,32 @@ describe("tabletop debugger", () => {
     expect(document.querySelector(".alu-bit")).toBeNull();
     expect(document.querySelector(".branch-hop")).toBeNull();
   });
+
+  it("runs to a line without motion, steps back, and still has Pause", async () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    expect(root.querySelector("#motion-pause")?.textContent).toBe("Pause");
+    click(root, "#motion-toggle");
+    const editor = editorValue(root);
+    editor.value = ["        LD A, 1", "        LD A, 2", "        HALT"].join("\n");
+    click(root, "#assemble");
+    const rows = root.querySelectorAll(".gutter-row.runnable");
+    rows[2]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(root.querySelector("#step")?.textContent).toBe("Stop");
+    for (let tick = 0; tick < 8; tick += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(text(root, "[data-key='main.a']")).toBe("02");
+    expect(root.querySelector("#step")?.textContent).toBe("Step");
+    expect(root.querySelector("#status")?.textContent).not.toContain("Halted");
+    click(root, "#step-back");
+    expect(text(root, "[data-key='main.a']")).toBe("01");
+    click(root, "#motion-toggle");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("02");
+    expect(document.querySelector(".travel-token")).not.toBeNull();
+  });
 });
 
 function bitsOf(selector: string, row: string): string {

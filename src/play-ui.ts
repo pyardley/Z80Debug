@@ -20,6 +20,7 @@ import {
   formatWord,
   loadFormat,
   parseAddress,
+  parseEditedValue,
   saveFormat,
   type DisplayFormat,
 } from "./format";
@@ -29,7 +30,6 @@ import {
   captureMotionBase,
   clampSpeed,
   loadSpeed,
-  motionMemoryAddress,
   planAfterStep,
   saveSpeed,
   SPEED_DEFAULT,
@@ -38,6 +38,7 @@ import {
 import { MotionStage, type BadgeLift } from "./play-stage";
 import { hexColumns, mountPanes } from "./panes";
 import { paintStackPane } from "./stack";
+import { isWordKey, openValueEditor } from "./value-edit";
 
 const SOURCE_LINE_HEIGHT = 20;
 const UNTITLED = "Untitled";
@@ -94,10 +95,10 @@ export function mount(root: HTMLElement): void {
   finishMotion = () => stage.finish();
 
   let format = readDisplayFormat();
-  let lookAddress: number | undefined;
-  let followWrite = true;
+  let heldAddress: number | undefined;
+  let running = false;
+  let runLine = 0;
   let dumpColumns = 16;
-  let spotlight: number | undefined;
   const stackWindow: { top: number | undefined } = { top: undefined };
   let motionOn = true;
   let motionRate = readMotionRate();
@@ -151,6 +152,7 @@ export function mount(root: HTMLElement): void {
           <button type="button" id="assemble">Assemble</button>
           <button type="button" id="reset">Reset</button>
           <button type="button" id="step">Step</button>
+          <button type="button" id="step-back">Step back</button>
           <button type="button" id="motion-toggle" aria-pressed="true">Motion on</button>
           <label class="speed">
             <span class="speed-name">Speed</span>
@@ -279,23 +281,34 @@ export function mount(root: HTMLElement): void {
   required<HTMLButtonElement>(root, "#assemble").addEventListener("click", () => {
     stopMotion();
     machine.assemble(editor.value);
-    lookAddress = undefined;
-    followWrite = true;
-    spotlight = undefined;
+    releaseWatch();
     stackWindow.top = undefined;
     render();
   });
   required<HTMLButtonElement>(root, "#reset").addEventListener("click", () => {
     stopMotion();
+    running = false;
     machine.reset();
-    lookAddress = undefined;
-    followWrite = true;
-    spotlight = undefined;
+    releaseWatch();
     stackWindow.top = undefined;
     render();
   });
   required<HTMLButtonElement>(root, "#step").addEventListener("click", () => {
+    if (running) {
+      running = false;
+      paintTransport();
+      return;
+    }
     stepOnce();
+  });
+  required<HTMLButtonElement>(root, "#step-back").addEventListener("click", () => {
+    if (running) {
+      return;
+    }
+    stopMotion();
+    if (machine.stepBack()) {
+      render();
+    }
   });
   required<HTMLButtonElement>(root, "#motion-toggle").addEventListener("click", () => {
     motionOn = !motionOn;
@@ -369,6 +382,7 @@ export function mount(root: HTMLElement): void {
       stopMotion();
       format = name;
       writeDisplayFormat(format);
+      rewriteWatch();
       render();
     });
   }
@@ -376,20 +390,76 @@ export function mount(root: HTMLElement): void {
   required<HTMLFormElement>(root, "#jump-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const input = required<HTMLInputElement>(root, "#jump-address");
-    const address = parseAddress(input.value);
+    const address = readAddress(input.value);
     const note = required<HTMLElement>(root, "#memory-focus-title");
     if (address === undefined) {
       note.textContent = "Address not recognised";
       return;
     }
-    lookAddress = address;
-    followWrite = false;
+    heldAddress = address;
     render();
   });
   required<HTMLButtonElement>(root, "#show-write").addEventListener("click", () => {
-    followWrite = true;
-    lookAddress = undefined;
+    if (machine.lastWriteAddress === undefined) {
+      return;
+    }
+    heldAddress = machine.lastWriteAddress;
+    required<HTMLInputElement>(root, "#jump-address").value = formatWord(heldAddress, format).trim();
     render();
+  });
+  required<HTMLInputElement>(root, "#jump-address").addEventListener("input", () => {
+    const box = required<HTMLInputElement>(root, "#jump-address");
+    if (box.value.trim() === "") {
+      heldAddress = undefined;
+      render();
+      return;
+    }
+    if (heldAddress === undefined) {
+      heldAddress = machine.lastAccessAddress ?? 0;
+      render();
+    }
+  });
+  root.addEventListener("click", (event) => {
+    if (running) {
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target instanceof HTMLInputElement) {
+      return;
+    }
+    const memory = target.closest("#memory-pc .mem-byte, #memory-focus .mem-byte");
+    if (memory instanceof HTMLElement && memory.dataset.addr !== undefined) {
+      const address = Number(memory.dataset.addr);
+      const initial = format === "ascii" ? memory.textContent ?? "" : (memory.textContent ?? "").trim();
+      openValueEditor(memory, initial, (text) => {
+        const value = parseEditedValue(text, format, 8);
+        if (value === undefined) {
+          return false;
+        }
+        machine.setMemoryByte(address, value);
+        render();
+        return true;
+      });
+      return;
+    }
+    const cell = target.closest(".num[data-key]");
+    if (!(cell instanceof HTMLElement) || cell.closest(".reg") === null) {
+      return;
+    }
+    const key = cell.dataset.key;
+    if (key === undefined) {
+      return;
+    }
+    const bits = isWordKey(key) ? 16 : 8;
+    const initial = format === "ascii" ? cell.textContent ?? "" : (cell.textContent ?? "").trim();
+    openValueEditor(cell, initial, (text) => {
+      const value = parseEditedValue(text, format, bits);
+      if (value === undefined || !machine.setVisibleRegister(key, value)) {
+        return false;
+      }
+      render();
+      return true;
+    });
   });
 
   bindChrome(
@@ -439,10 +509,11 @@ export function mount(root: HTMLElement): void {
     flagHold = undefined;
   }
 
-  function stepOnce(): void {
+  function stepOnce(after?: () => void): void {
     stopMotion();
     if (!machine.ready || machine.halted) {
       render();
+      after?.();
       return;
     }
     const group = swapGroup(machine.nextInstruction);
@@ -455,10 +526,10 @@ export function mount(root: HTMLElement): void {
     machine.step();
     if (machine.steps === steps) {
       render();
+      after?.();
       return;
     }
     const plan = planAfterStep(base, machine);
-    spotlight = motionMemoryAddress(plan);
     popConsole = plan.type === "travel" && plan.moves.some((move) => move.pop);
     const activeSide = machine.banks().main.afActive ? "main" : "alt";
     flagHold = undefined;
@@ -499,19 +570,47 @@ export function mount(root: HTMLElement): void {
           ? { from: markFrom, live: markNow }
           : undefined,
         rate: motionRate,
-        onSettled: plan.type === "shift"
-          || (plan.type === "bit" && plan.op === "bit")
-          || plan.type === "alu"
-          || plan.type === "word"
-          || plan.type === "daa"
-          || plan.type === "nibble"
-          ? () => {
-            flagHold = undefined;
-            render();
-          }
-          : undefined,
+        onSettled: () => {
+          flagHold = undefined;
+          render();
+          after?.();
+        },
       });
+    } else if (after !== undefined) {
+      window.setTimeout(after, 0);
     }
+  }
+
+  function runTo(line: number): void {
+    if (!machine.ready || machine.halted || !machine.hasSourceLine(line)) {
+      return;
+    }
+    if (running) {
+      runLine = line;
+      return;
+    }
+    if (machine.sourceLine(machine.cpu.regs.pc) === line) {
+      return;
+    }
+    running = true;
+    runLine = line;
+    paintTransport();
+    continueRun();
+  }
+
+  function continueRun(): void {
+    if (!running) {
+      paintTransport();
+      return;
+    }
+    if (!machine.ready || machine.halted || machine.sourceLine(machine.cpu.regs.pc) === runLine) {
+      running = false;
+      render();
+      return;
+    }
+    stepOnce(() => {
+      continueRun();
+    });
   }
 
   function render(): void {
@@ -530,7 +629,33 @@ export function mount(root: HTMLElement): void {
     paintConsole();
     paintDocument();
     markChanged(root, machine.changed);
-    required<HTMLButtonElement>(root, "#step").disabled = !machine.ready || machine.halted;
+    paintTransport();
+  }
+
+  function paintTransport(): void {
+    const step = required<HTMLButtonElement>(root, "#step");
+    step.textContent = running ? "Stop" : "Step";
+    step.disabled = running ? false : !machine.ready || machine.halted;
+    step.setAttribute("aria-pressed", running ? "true" : "false");
+    const back = required<HTMLButtonElement>(root, "#step-back");
+    back.disabled = running || !machine.canStepBack();
+  }
+
+  function releaseWatch(): void {
+    running = false;
+    heldAddress = undefined;
+    required<HTMLInputElement>(root, "#jump-address").value = "";
+  }
+
+  function rewriteWatch(): void {
+    const input = required<HTMLInputElement>(root, "#jump-address");
+    if (heldAddress !== undefined && input.value.trim() !== "") {
+      input.value = formatWord(heldAddress, format).trim();
+    }
+  }
+
+  function readAddress(text: string): number | undefined {
+    return parseEditedValue(text, format, 16) ?? parseAddress(text);
   }
 
   function captureBadges(group: "af" | "exx"): BadgeLift {
@@ -709,10 +834,9 @@ export function mount(root: HTMLElement): void {
     loadedName = name;
     fileHandle = handle;
     exampleId = nextExample;
+    stopMotion();
     machine.assemble(source);
-    lookAddress = undefined;
-    followWrite = true;
-    spotlight = undefined;
+    releaseWatch();
     stackWindow.top = undefined;
     render();
   }
@@ -1019,16 +1143,16 @@ export function mount(root: HTMLElement): void {
     const pc = machine.cpu.regs.pc & 0xffff;
     paintDump(pcHost, pc, true);
     const focusTitle = required<HTMLElement>(root, "#memory-focus-title");
+    const box = required<HTMLInputElement>(root, "#jump-address").value.trim();
     let focus = 0;
-    if (!followWrite && lookAddress !== undefined) {
-      focus = lookAddress;
+    if (box !== "" && heldAddress !== undefined) {
+      focus = heldAddress;
       focusTitle.textContent = `Memory at ${formatWord(focus, format)}`;
-    } else if (spotlight !== undefined) {
-      focus = spotlight;
-      focusTitle.textContent = `Memory at ${formatWord(focus, format)}`;
-    } else if (machine.lastWriteAddress !== undefined) {
-      focus = machine.lastWriteAddress;
-      focusTitle.textContent = `Memory around latest write ${formatWord(focus, format)}`;
+    } else if (box === "" && machine.lastAccessAddress !== undefined) {
+      focus = machine.lastAccessAddress;
+      focusTitle.textContent = machine.lastAccessKind === "read"
+        ? `Memory around latest read ${formatWord(focus, format)}`
+        : `Memory around latest write ${formatWord(focus, format)}`;
     } else {
       focusTitle.textContent = "Memory around latest write";
     }
@@ -1156,6 +1280,22 @@ export function mount(root: HTMLElement): void {
     const row = document.createElement("div");
     row.className = current ? "gutter-row current" : "gutter-row";
     row.dataset.line = String(lineNo);
+    if (machine.ready && machine.hasSourceLine(lineNo)) {
+      row.classList.add("runnable");
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.title = "Run to this line";
+      row.addEventListener("click", (event) => {
+        event.preventDefault();
+        runTo(lineNo);
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          runTo(lineNo);
+        }
+      });
+    }
     const marker = document.createElement("span");
     marker.className = "pc-marker";
     if (current) {
@@ -1237,6 +1377,7 @@ function regCell(label: string, text: string, key: string, wide: boolean): HTMLE
   value.className = `num ${wide ? "word" : "byte"}`;
   value.textContent = text;
   value.dataset.key = key;
+  value.title = "Click to type a new value";
   cell.append(name, value);
   return cell;
 }

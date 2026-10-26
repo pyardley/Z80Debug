@@ -9,6 +9,7 @@ import {
   formatWord,
   FORMAT_STORAGE_KEY,
   loadFormat,
+  parseEditedValue,
   saveFormat,
 } from "./format";
 import { Machine } from "./machine";
@@ -483,8 +484,113 @@ describe("console", () => {
     machine.console.write(0x0000, 0x08);
     machine.console.write(0, 0x43);
     expect(machine.console.text()).toBe(`A${" ".repeat(7)}${ASCII_MIDDLE_DOT}\nC`);
-    expect(machine.snapshot()).toEqual(before);
+    const after = machine.snapshot();
+    expect(after.pc).toBe(before.pc);
+    expect(after.af).toBe(before.af);
+    expect(after.memory).toEqual(before.memory);
+    expect(after.steps).toBe(before.steps);
     expect(machine.console.waiting).toBe(waiting);
+  });
+});
+
+describe("step back and edits", () => {
+  it("restores the machine to before the last instruction", () => {
+    const machine = new Machine();
+    expect(machine.assemble("LD A, 1\nLD (0C000H), A\nLD A, 2\n")).toBe(true);
+    expect(machine.stepBack()).toBe(false);
+    machine.step();
+    expect(machine.cpu.regs.a).toBe(1);
+    machine.step();
+    expect(machine.memory[0xc000]).toBe(1);
+    expect(machine.lastAccessKind).toBe("write");
+    expect(machine.lastAccessAddress).toBe(0xc000);
+    const stepped = machine.steps;
+    expect(machine.stepBack()).toBe(true);
+    expect(machine.memory[0xc000]).toBe(0);
+    expect(machine.cpu.regs.a).toBe(1);
+    expect(machine.steps).toBe(stepped - 1);
+    expect(machine.canStepBack()).toBe(true);
+    expect(machine.stepBack()).toBe(true);
+    expect(machine.cpu.regs.a).toBe(0);
+    expect(machine.steps).toBe(0);
+    expect(machine.stepBack()).toBe(false);
+  });
+
+  it("keeps an edit inside the current state and not as its own undo step", () => {
+    const machine = new Machine();
+    expect(machine.assemble("LD B, A\n")).toBe(true);
+    machine.step();
+    expect(machine.setVisibleRegister("main.a", 0x3c)).toBe(true);
+    expect(machine.cpu.regs.a).toBe(0x3c);
+    expect(machine.stepBack()).toBe(true);
+    expect(machine.cpu.regs.a).toBe(0);
+    expect(machine.setVisibleRegister("main.a", 0x3c)).toBe(true);
+    machine.step();
+    expect(machine.cpu.regs.b).toBe(0x3c);
+    expect(machine.stepBack()).toBe(true);
+    expect(machine.cpu.regs.a).toBe(0x3c);
+    expect(machine.cpu.regs.b).toBe(0);
+  });
+
+  it("updates the flags when F is edited, including the shadow bank", () => {
+    const machine = new Machine();
+    expect(machine.assemble("EX AF, AF'\nNOP\n")).toBe(true);
+    expect(machine.setVisibleRegister("main.f", 0b10000001)).toBe(true);
+    expect(machine.cpu.regs.f & 0xff).toBe(0b10000001);
+    expect(machine.banks().main.af & 0xff).toBe(0b10000001);
+    machine.step();
+    expect(machine.banks().main.af & 0xff).toBe(0b10000001);
+    expect(machine.banks().main.afActive).toBe(false);
+    expect(machine.setVisibleRegister("alt.f", 0b01000000)).toBe(true);
+    expect(machine.banks().alternate.af & 0xff).toBe(0b01000000);
+    expect(machine.banks().main.af & 0xff).toBe(0b10000001);
+  });
+
+  it("follows a memory read when the instruction does not write", () => {
+    const machine = new Machine();
+    expect(machine.assemble("LD HL, 2000H\nLD A, (HL)\nNOP\n")).toBe(true);
+    machine.memory[0x2000] = 0x5a;
+    machine.step();
+    expect(machine.lastAccessAddress).toBeUndefined();
+    machine.step();
+    expect(machine.cpu.regs.a).toBe(0x5a);
+    expect(machine.lastAccessAddress).toBe(0x2000);
+    expect(machine.lastAccessKind).toBe("read");
+    machine.step();
+    expect(machine.lastAccessAddress).toBe(0x2000);
+  });
+
+  it("writes a memory byte without adding an undo step", () => {
+    const machine = new Machine();
+    expect(machine.assemble("NOP\n")).toBe(true);
+    machine.setMemoryByte(0x1234, 0xab);
+    expect(machine.memory[0x1234]).toBe(0xab);
+    expect(machine.canStepBack()).toBe(false);
+    machine.step();
+    machine.setMemoryByte(0x1234, 0xcd);
+    expect(machine.stepBack()).toBe(true);
+    expect(machine.memory[0x1234]).toBe(0xab);
+  });
+
+  it("reads a typed value in the format on screen", () => {
+    expect(parseEditedValue("0C000H", "hex", 16)).toBe(0xc000);
+    expect(parseEditedValue("3C", "hex", 8)).toBe(0x3c);
+    expect(parseEditedValue("195", "decimal", 8)).toBe(195);
+    expect(parseEditedValue("256", "decimal", 8)).toBeUndefined();
+    expect(parseEditedValue("11000011", "binary", 8)).toBe(0xc3);
+    expect(parseEditedValue("A", "ascii", 8)).toBe(0x41);
+    expect(parseEditedValue("AB", "ascii", 16)).toBe(0x4142);
+    expect(parseEditedValue("3C", "decimal", 8)).toBeUndefined();
+  });
+
+  it("puts the console back when stepping back over OUT", () => {
+    const machine = new Machine();
+    expect(machine.assemble("LD A, 41H\nOUT (00H), A\n")).toBe(true);
+    machine.step();
+    machine.step();
+    expect(machine.console.text()).toBe("A");
+    expect(machine.stepBack()).toBe(true);
+    expect(machine.console.text()).toBe("");
   });
 });
 

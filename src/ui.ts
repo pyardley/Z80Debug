@@ -7,6 +7,7 @@ import {
   formatWord,
   loadFormat,
   parseAddress,
+  parseEditedValue,
   saveFormat,
   type DisplayFormat,
 } from "./format";
@@ -27,6 +28,7 @@ import { appendFlagParts, FLAG_BITS } from "./flags";
 import { Machine, type RegisterBank } from "./machine";
 import { hexColumns, mountPanes } from "./panes";
 import { paintStackPane } from "./stack";
+import { isWordKey, openValueEditor } from "./value-edit";
 
 const SOURCE_LINE_HEIGHT = 20;
 
@@ -54,8 +56,9 @@ function writeDisplayFormat(format: DisplayFormat): void {
 export function mount(root: HTMLElement): void {
   const machine = new Machine();
   let format = readDisplayFormat();
-  let lookAddress: number | undefined;
-  let followWrite = true;
+  let heldAddress: number | undefined;
+  let running = false;
+  let runLine = 0;
   let dumpColumns = 16;
   const stackWindow: { top: number | undefined } = { top: undefined };
 
@@ -85,6 +88,7 @@ export function mount(root: HTMLElement): void {
         <button type="button" id="assemble">Assemble</button>
         <button type="button" id="reset">Reset</button>
         <button type="button" id="step">Step</button>
+        <button type="button" id="step-back">Step back</button>
       </div>
       <div class="format" role="radiogroup" aria-label="Display format">
         <span class="format-label">Values</span>
@@ -209,21 +213,32 @@ export function mount(root: HTMLElement): void {
 
   required<HTMLButtonElement>(root, "#assemble").addEventListener("click", () => {
     machine.assemble(editor.value);
-    lookAddress = undefined;
-    followWrite = true;
+    releaseWatch();
     stackWindow.top = undefined;
     render();
   });
   required<HTMLButtonElement>(root, "#reset").addEventListener("click", () => {
+    running = false;
     machine.reset();
-    lookAddress = undefined;
-    followWrite = true;
+    releaseWatch();
     stackWindow.top = undefined;
     render();
   });
   required<HTMLButtonElement>(root, "#step").addEventListener("click", () => {
-    machine.step();
-    render();
+    if (running) {
+      running = false;
+      paintTransport();
+      return;
+    }
+    stepOnce();
+  });
+  required<HTMLButtonElement>(root, "#step-back").addEventListener("click", () => {
+    if (running) {
+      return;
+    }
+    if (machine.stepBack()) {
+      render();
+    }
   });
   required<HTMLButtonElement>(root, "#file-menu-button").addEventListener("click", () => {
     toggleMenu();
@@ -274,6 +289,7 @@ export function mount(root: HTMLElement): void {
     required<HTMLButtonElement>(root, `#format-${name}`).addEventListener("click", () => {
       format = name;
       writeDisplayFormat(format);
+      rewriteWatch();
       render();
     });
   }
@@ -281,20 +297,76 @@ export function mount(root: HTMLElement): void {
   required<HTMLFormElement>(root, "#jump-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const input = required<HTMLInputElement>(root, "#jump-address");
-    const address = parseAddress(input.value);
+    const address = readAddress(input.value);
     const note = required<HTMLElement>(root, "#memory-focus-title");
     if (address === undefined) {
       note.textContent = "Address not recognised";
       return;
     }
-    lookAddress = address;
-    followWrite = false;
+    heldAddress = address;
     render();
   });
   required<HTMLButtonElement>(root, "#show-write").addEventListener("click", () => {
-    followWrite = true;
-    lookAddress = undefined;
+    if (machine.lastWriteAddress === undefined) {
+      return;
+    }
+    heldAddress = machine.lastWriteAddress;
+    required<HTMLInputElement>(root, "#jump-address").value = formatWord(heldAddress, format).trim();
     render();
+  });
+  required<HTMLInputElement>(root, "#jump-address").addEventListener("input", () => {
+    const input = required<HTMLInputElement>(root, "#jump-address");
+    if (input.value.trim() === "") {
+      heldAddress = undefined;
+      render();
+      return;
+    }
+    if (heldAddress === undefined) {
+      heldAddress = machine.lastAccessAddress ?? 0;
+      render();
+    }
+  });
+  root.addEventListener("click", (event) => {
+    if (running) {
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target instanceof HTMLInputElement) {
+      return;
+    }
+    const memory = target.closest("#memory-pc .mem-byte, #memory-focus .mem-byte");
+    if (memory instanceof HTMLElement && memory.dataset.addr !== undefined) {
+      const address = Number(memory.dataset.addr);
+      const initial = format === "ascii" ? memory.textContent ?? "" : (memory.textContent ?? "").trim();
+      openValueEditor(memory, initial, (text) => {
+        const value = parseEditedValue(text, format, 8);
+        if (value === undefined) {
+          return false;
+        }
+        machine.setMemoryByte(address, value);
+        render();
+        return true;
+      });
+      return;
+    }
+    const cell = target.closest(".num[data-key]");
+    if (!(cell instanceof HTMLElement) || cell.closest(".reg") === null) {
+      return;
+    }
+    const key = cell.dataset.key;
+    if (key === undefined) {
+      return;
+    }
+    const bits = isWordKey(key) ? 16 : 8;
+    const initial = format === "ascii" ? cell.textContent ?? "" : (cell.textContent ?? "").trim();
+    openValueEditor(cell, initial, (text) => {
+      const value = parseEditedValue(text, format, bits);
+      if (value === undefined || !machine.setVisibleRegister(key, value)) {
+        return false;
+      }
+      render();
+      return true;
+    });
   });
 
   bindChrome(
@@ -345,7 +417,74 @@ export function mount(root: HTMLElement): void {
     paintConsole();
     paintDocument();
     markChanged(root, machine.changed);
-    required<HTMLButtonElement>(root, "#step").disabled = !machine.ready || machine.halted;
+    paintTransport();
+  }
+
+  function paintTransport(): void {
+    const step = required<HTMLButtonElement>(root, "#step");
+    step.textContent = running ? "Stop" : "Step";
+    step.disabled = running ? false : !machine.ready || machine.halted;
+    step.setAttribute("aria-pressed", running ? "true" : "false");
+    const back = required<HTMLButtonElement>(root, "#step-back");
+    back.disabled = running || !machine.canStepBack();
+  }
+
+  function releaseWatch(): void {
+    running = false;
+    heldAddress = undefined;
+    required<HTMLInputElement>(root, "#jump-address").value = "";
+  }
+
+  function rewriteWatch(): void {
+    const input = required<HTMLInputElement>(root, "#jump-address");
+    if (heldAddress !== undefined && input.value.trim() !== "") {
+      input.value = formatWord(heldAddress, format).trim();
+    }
+  }
+
+  function readAddress(text: string): number | undefined {
+    return parseEditedValue(text, format, 16) ?? parseAddress(text);
+  }
+
+  function stepOnce(): void {
+    if (!machine.ready || machine.halted) {
+      render();
+      return;
+    }
+    machine.step();
+    render();
+  }
+
+  function runTo(line: number): void {
+    if (!machine.ready || machine.halted || !machine.hasSourceLine(line)) {
+      return;
+    }
+    if (running) {
+      runLine = line;
+      return;
+    }
+    if (machine.sourceLine(machine.cpu.regs.pc) === line) {
+      return;
+    }
+    running = true;
+    runLine = line;
+    paintTransport();
+    continueRun();
+  }
+
+  function continueRun(): void {
+    if (!running) {
+      paintTransport();
+      return;
+    }
+    if (!machine.ready || machine.halted || machine.sourceLine(machine.cpu.regs.pc) === runLine) {
+      running = false;
+      render();
+      return;
+    }
+    machine.step();
+    render();
+    window.setTimeout(continueRun, 0);
   }
 
   function loadExample(id: string): void {
@@ -505,8 +644,7 @@ export function mount(root: HTMLElement): void {
     fileHandle = handle;
     exampleId = nextExample;
     machine.assemble(source);
-    lookAddress = undefined;
-    followWrite = true;
+    releaseWatch();
     stackWindow.top = undefined;
     render();
   }
@@ -785,13 +923,16 @@ export function mount(root: HTMLElement): void {
     const pc = machine.cpu.regs.pc & 0xffff;
     paintDump(pcHost, pc, true);
     const focusTitle = required<HTMLElement>(root, "#memory-focus-title");
+    const box = required<HTMLInputElement>(root, "#jump-address").value.trim();
     let focus = 0;
-    if (!followWrite && lookAddress !== undefined) {
-      focus = lookAddress;
+    if (box !== "" && heldAddress !== undefined) {
+      focus = heldAddress;
       focusTitle.textContent = `Memory at ${formatWord(focus, format)}`;
-    } else if (machine.lastWriteAddress !== undefined) {
-      focus = machine.lastWriteAddress;
-      focusTitle.textContent = `Memory around latest write ${formatWord(focus, format)}`;
+    } else if (box === "" && machine.lastAccessAddress !== undefined) {
+      focus = machine.lastAccessAddress;
+      focusTitle.textContent = machine.lastAccessKind === "read"
+        ? `Memory around latest read ${formatWord(focus, format)}`
+        : `Memory around latest write ${formatWord(focus, format)}`;
     } else {
       focusTitle.textContent = "Memory around latest write";
     }
@@ -840,6 +981,7 @@ export function mount(root: HTMLElement): void {
         const value = machine.memory[location];
         const cell = document.createElement("span");
         cell.className = "num mem-byte";
+        cell.dataset.addr = String(location);
         cell.textContent = formatByte(value, format);
         if (written.has(location)) {
           cell.classList.add("changed");
@@ -917,6 +1059,22 @@ export function mount(root: HTMLElement): void {
   function gutterRow(line: number, current: boolean): HTMLElement {
     const row = document.createElement("div");
     row.className = current ? "gutter-row current" : "gutter-row";
+    if (machine.ready && machine.hasSourceLine(line)) {
+      row.classList.add("runnable");
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.title = "Run to this line";
+      row.addEventListener("click", (event) => {
+        event.preventDefault();
+        runTo(line);
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          runTo(line);
+        }
+      });
+    }
     const marker = document.createElement("span");
     marker.className = "pc-marker";
     if (current) {
@@ -998,6 +1156,7 @@ function regCell(label: string, text: string, key: string, wide: boolean): HTMLE
   value.className = `num ${wide ? "word" : "byte"}`;
   value.textContent = text;
   value.dataset.key = key;
+  value.title = "Click to type a new value";
   cell.append(name, value);
   return cell;
 }

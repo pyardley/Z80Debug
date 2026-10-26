@@ -111,6 +111,51 @@ export function parseAddress(text: string): number | undefined {
   return undefined;
 }
 
+/** Read a byte or word typed in the format currently on screen. */
+export function parseEditedValue(text: string, format: DisplayFormat, bits: 8 | 16): number | undefined {
+  const raw = format === "ascii" ? text : text.trim();
+  if (raw === "") {
+    return undefined;
+  }
+  const max = bits === 8 ? 0xff : 0xffff;
+  if (format === "hex") {
+    const match = raw.match(/^(?:0x|\$)?([0-9a-f]+)h?$/i);
+    if (match === null || match[1].length > 8) {
+      return undefined;
+    }
+    const value = parseInt(match[1], 16);
+    return value <= max ? value : undefined;
+  }
+  if (format === "decimal") {
+    if (!/^\d+$/.test(raw)) {
+      return undefined;
+    }
+    const value = parseInt(raw, 10);
+    return value <= max ? value : undefined;
+  }
+  if (format === "binary") {
+    const match = raw.match(/^(?:0b|%)?([01]+)b?$/i);
+    if (match === null || match[1].length > bits) {
+      return undefined;
+    }
+    return parseInt(match[1], 2);
+  }
+  const chars = Array.from(raw);
+  const expected = bits === 8 ? 1 : 2;
+  if (chars.length !== expected) {
+    return undefined;
+  }
+  let value = 0;
+  for (const character of chars) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code < 0x20 || code > 0x7e) {
+      return undefined;
+    }
+    value = (value << 8) | code;
+  }
+  return value;
+}
+
 function clip(value: number): number | undefined {
   if (!Number.isFinite(value) || value < 0 || value > 0xffff) {
     return undefined;
