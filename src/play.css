@@ -98,7 +98,7 @@ h3 {
 
 .desk {
   display: grid;
-  grid-template-columns: minmax(34rem, 1fr) minmax(22rem, 48rem);
+  grid-template-columns: minmax(40rem, 1fr) 38rem;
   gap: 0.7rem;
   align-items: start;
   width: min(100% - 0.8rem, 1880px);
@@ -230,7 +230,7 @@ h3 {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 34rem) minmax(0, 1fr);
+  grid-template-columns: minmax(16rem, 1fr) minmax(22rem, 26rem);
   gap: 0.7rem;
 }
 
@@ -243,6 +243,8 @@ h3 {
   box-shadow: inset 0 1px 0 #fff;
 }
 
+.editor-pane, .cpu-pane { overflow: hidden; }
+
 .pane-head {
   display: flex;
   justify-content: space-between;
@@ -250,6 +252,13 @@ h3 {
   align-items: baseline;
   margin-bottom: 0.35rem;
 }
+
+.memory-pane .pane-head {
+  flex-wrap: wrap;
+  row-gap: 0.35rem;
+}
+
+.memory-pane .pane-head h2 { flex: 1 0 auto; }
 
 .source-title { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
 
@@ -435,7 +444,9 @@ textarea {
   font-weight: 700;
 }
 
+.instruction { min-width: 0; }
 .instruction p { margin: 0.12rem 0; }
+.instruction .num { white-space: pre-wrap; }
 .insn-label { display: inline-block; width: 3.2rem; }
 
 .system-regs, .reg-row, .flags {
