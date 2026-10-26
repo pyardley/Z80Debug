@@ -47,7 +47,7 @@ describe("tabletop debugger", () => {
     vi.restoreAllMocks();
     document.body.replaceChildren();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    document.querySelectorAll(".travel-token, .flying-badge, .flying-stack-mark, .shift-bit, .logic-bit, .logic-op, .logic-result, .logic-board, .counter-roll, .counter-board, .counter-op").forEach((node) => node.remove());
+    document.querySelectorAll(".travel-token, .flying-badge, .flying-stack-mark, .shift-bit, .logic-bit, .logic-op, .logic-result, .logic-board, .counter-roll, .counter-board, .counter-op, .alu-bit, .alu-carry, .alu-board, .alu-op, .alu-result, .word-byte, .word-carry, .word-board, .word-op, .word-result, .daa-board, .daa-flag, .daa-digit, .daa-correction, .daa-result, .branch-hop, .nibble-chip, .nibble-board, .nibble-result").forEach((node) => node.remove());
   });
 
   it("sends an immediate on a chip and keeps the register correct", () => {
@@ -496,7 +496,165 @@ describe("tabletop debugger", () => {
     expect(() => slider.dispatchEvent(new Event("input", { bubbles: true }))).not.toThrow();
     expect(text(root, "#motion-speed-readout")).toBe("0.5×");
   });
+
+  it("pauses the current animation and resumes it without changing the machine", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    const animations: { playState: string }[] = [];
+    const host = animateOwner();
+    const original = host.animate;
+    host.animate = function () {
+      const animation = {
+        playState: "running",
+        pause() {
+          this.playState = "paused";
+        },
+        play() {
+          this.playState = "running";
+        },
+        cancel() {
+          this.playState = "idle";
+        },
+        onfinish: null,
+      };
+      animations.push(animation);
+      return animation as unknown as Animation;
+    };
+    try {
+      mount(root);
+      const speed = root.querySelector("#motion-speed");
+      expect(speed?.parentElement?.nextElementSibling).toBe(root.querySelector("#motion-pause"));
+      expect(text(root, "#motion-pause")).toBe("Pause");
+      chooseExample(root, "exchange");
+      click(root, "#step");
+      const steps = text(root, "#status");
+      const value = text(root, "[data-key='main.a']");
+      expect(animations.length).toBeGreaterThan(0);
+      click(root, "#motion-pause");
+      expect(text(root, "#motion-pause")).toBe("Resume");
+      expect(root.querySelector("#motion-pause")?.getAttribute("aria-pressed")).toBe("true");
+      expect(animations.every((animation) => animation.playState === "paused")).toBe(true);
+      expect(text(root, "#status")).toBe(steps);
+      expect(text(root, "[data-key='main.a']")).toBe(value);
+      click(root, "#motion-pause");
+      expect(text(root, "#motion-pause")).toBe("Pause");
+      expect(animations.every((animation) => animation.playState === "running")).toBe(true);
+      expect(text(root, "[data-key='main.a']")).toBe(value);
+    } finally {
+      host.animate = original;
+    }
+  });
+
+  it("draws add, a 16-bit carry, DAA, a taken hop, and RLD", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const editor = editorValue(root);
+    editor.value = ["        ORG 0100H", "        LD A, 0FH", "        ADD A, 01H", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("10");
+    expect(bitsOf(".alu-bit", "left")).toBe("00001111");
+    expect(bitsOf(".alu-bit", "right")).toBe("00000001");
+    expect(bitsOf(".alu-bit", "result")).toBe("00010000");
+    expect(document.querySelectorAll(".alu-carry").length).toBeGreaterThan(0);
+    expect(document.querySelector(".alu-result")?.textContent).toBe("10");
+    expect(document.querySelector(".alu-result")?.getAttribute("data-stored")).toBe("1");
+
+    editor.value = ["        ORG 0100H", "        LD A, 10H", "        CP 10H", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("10");
+    expect(document.querySelector(".alu-board")?.getAttribute("data-stored")).toBe("0");
+    expect(document.querySelector(".alu-result")?.getAttribute("data-stored")).toBe("0");
+    expect(root.querySelector("[data-key='main.a']")?.getAttribute("style") ?? "").not.toContain("opacity");
+
+    editor.value = ["        ORG 0100H", "        LD HL, 00FFH", "        LD BC, 0001H", "        ADD HL, BC", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.hl']")).toBe("0100");
+    expect(document.querySelector(".word-carry")?.getAttribute("data-value")).toBe("1");
+    expect(document.querySelector(".word-op")?.textContent).toBe("ADD HL");
+    expect(document.querySelector(".word-result")?.textContent).toBe("0100");
+
+    editor.value = ["        ORG 0100H", "        LD A, 08H", "        ADD A, 08H", "        DAA", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("16");
+    expect(document.querySelector(".daa-digit[data-place='high']")?.getAttribute("data-from")).toBe("1");
+    expect(document.querySelector(".daa-digit[data-place='high']")?.getAttribute("data-to")).toBe("1");
+    expect(document.querySelector(".daa-digit[data-place='low']")?.getAttribute("data-from")).toBe("0");
+    expect(document.querySelector(".daa-digit[data-place='low']")?.getAttribute("data-to")).toBe("6");
+    expect(document.querySelector(".daa-flag[data-flag='h']")?.textContent).toBe("H 1");
+    expect(document.querySelector(".daa-flag[data-flag='n']")?.textContent).toBe("N 0");
+    expect(document.querySelector(".daa-flag[data-flag='c']")?.textContent).toBe("C 0");
+    expect(document.querySelector(".daa-correction")?.textContent).toBe("+06");
+
+    editor.value = [
+      "        ORG 0100H",
+      "        LD B, 02H",
+      "AGAIN:  DJNZ AGAIN",
+      "        JR Z, STOP",
+      "        JR STOP",
+      "        HALT",
+      "STOP:   HALT",
+    ].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(document.querySelector(".counter-op")?.textContent).toBe("DJNZ");
+    expect(document.querySelector(".counter-roll")?.getAttribute("data-from")).toBe("02");
+    expect(document.querySelector(".counter-roll")?.getAttribute("data-to")).toBe("01");
+    expect(document.querySelector(".branch-hop")?.getAttribute("data-taken")).toBe("1");
+    expect(document.querySelector(".branch-hop")?.getAttribute("data-displacement")).toBe("-2");
+    click(root, "#step");
+    expect(document.querySelector(".branch-hop")).toBeNull();
+    expect(document.querySelector(".counter-roll")?.getAttribute("data-to")).toBe("00");
+    click(root, "#step");
+    expect(document.querySelector(".branch-hop")).toBeNull();
+    click(root, "#step");
+    expect(document.querySelector(".branch-hop")?.getAttribute("data-kind")).toBe("jr");
+    expect(document.querySelector(".branch-hop")?.getAttribute("data-taken")).toBe("1");
+
+    editor.value = [
+      "        ORG 0100H",
+      "        LD HL, 0C000H",
+      "        LD (HL), 23H",
+      "        LD A, 0F1H",
+      "        RLD",
+      "        HALT",
+    ].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("F2");
+    const nibbles = Array.from(document.querySelectorAll(".nibble-chip"), (node) => node.getAttribute("data-value")).sort();
+    expect(nibbles).toEqual(["1", "2", "3"]);
+    expect(document.querySelector(".nibble-chip[data-from='mem-high']")?.getAttribute("data-to")).toBe("a-low");
+
+    click(root, "#motion-toggle");
+    click(root, "#reset");
+    editor.value = ["        ORG 0100H", "        LD A, 0FH", "        ADD A, 01H", "        HALT"].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(text(root, "[data-key='main.a']")).toBe("10");
+    expect(document.querySelector(".alu-bit")).toBeNull();
+    expect(document.querySelector(".branch-hop")).toBeNull();
+  });
 });
+
+function bitsOf(selector: string, row: string): string {
+  return Array.from(document.querySelectorAll(`${selector}[data-row='${row}']`), (node) => node.textContent).join("");
+}
 
 function captureDurations(run: () => void): number[] {
   const durations: number[] = [];

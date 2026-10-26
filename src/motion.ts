@@ -15,6 +15,21 @@ export const LOGIC_MS = 1200;
 /** Roll the digits that are on screen, then show the register again. */
 export const COUNTER_MS = 1100;
 
+/** Pop both bytes, then step a carry or borrow from column to column. */
+export const ALU_MS = 1400;
+
+/** Combine two words, then step a carry or borrow from the low byte into the high byte. */
+export const WORD_MS = 1300;
+
+/** Adjust the two hex digits of A from H, N, and C. */
+export const DAA_MS = 1200;
+
+/** Roll B, or hop along the source, for DJNZ and JR. */
+export const BRANCH_MS = 1100;
+
+/** Rotate the low nibble of A with the two nibbles at (HL). */
+export const NIBBLE_MS = 1100;
+
 /** Playback rate for every toy animation. 1 is the pace the page opens with. */
 export const SPEED_STORAGE_KEY = "z80debug.animationSpeed";
 export const SPEED_MIN = 0.1;
@@ -125,6 +140,102 @@ export interface CounterWheel {
   path: string[];
 }
 
+export type ArithOp = "add" | "adc" | "sub" | "sbc" | "cp";
+
+export interface ArithColumn {
+  /** 0 is the least significant bit. Display slot 0 is bit 7. */
+  bit: number;
+  left: 0 | 1;
+  right: 0 | 1;
+  carryIn: 0 | 1;
+  sum: 0 | 1;
+  carryOut: 0 | 1;
+}
+
+export interface FlagPicture {
+  s: boolean;
+  z: boolean;
+  h: boolean;
+  pv: boolean;
+  n: boolean;
+  c: boolean;
+}
+
+export interface ArithMotion {
+  type: "alu";
+  op: ArithOp;
+  left: number;
+  right: number;
+  /** The arithmetic result. CP computes it and does not store it. */
+  result: number;
+  stored: boolean;
+  columns: ArithColumn[];
+  other: { type: "reg"; name: RegName } | { type: "mem"; address: number } | { type: "source" };
+  dest: { type: "reg"; name: "a" };
+  flags: FlagPicture;
+}
+
+export type WordOp = "add" | "adc" | "sbc";
+
+export interface WordHalf {
+  left: number;
+  right: number;
+  result: number;
+  carryIn: 0 | 1;
+  carryOut: 0 | 1;
+}
+
+export interface WordMotion {
+  type: "word";
+  op: WordOp;
+  dest: RegName;
+  other: RegName;
+  left: number;
+  right: number;
+  result: number;
+  /** Index 0 is the low byte. */
+  halves: [WordHalf, WordHalf];
+  flags: FlagPicture;
+}
+
+export interface DaaMotion {
+  type: "daa";
+  before: number;
+  after: number;
+  /** Byte added, or subtracted when N is set. */
+  correction: number;
+  subtract: boolean;
+  low: boolean;
+  high: boolean;
+  h: boolean;
+  n: boolean;
+  c: boolean;
+  flags: FlagPicture;
+}
+
+export interface BranchMotion {
+  type: "branch";
+  kind: "djnz" | "jr";
+  taken: boolean;
+  displacement: number;
+  fromLine: number | undefined;
+  toLine: number | undefined;
+  /** Present for DJNZ. B decreases whether or not the branch is taken. */
+  before?: number;
+  after?: number;
+}
+
+export interface NibbleMotion {
+  type: "nibble";
+  op: "rld" | "rrd";
+  aBefore: number;
+  aAfter: number;
+  memBefore: number;
+  memAfter: number;
+  address: number;
+  flags: FlagPicture;
+}
+
 export type BitOp = "set" | "res" | "bit";
 
 export interface BitMotion {
@@ -147,7 +258,12 @@ export type MotionPlan =
   | ShiftMotion
   | BitMotion
   | LogicMotion
-  | CounterMotion;
+  | CounterMotion
+  | ArithMotion
+  | WordMotion
+  | DaaMotion
+  | BranchMotion
+  | NibbleMotion;
 
 export interface MotionFacts {
   mnemonic: string;
@@ -258,6 +374,26 @@ export function planAfterStep(base: MotionBase, machine: Machine): MotionPlan {
   if (logic !== undefined) {
     return logic;
   }
+  const arith = planArith(base, machine);
+  if (arith !== undefined) {
+    return arith;
+  }
+  const word = planWord(base, machine);
+  if (word !== undefined) {
+    return word;
+  }
+  const daa = planDaa(base, machine);
+  if (daa !== undefined) {
+    return daa;
+  }
+  const nibble = planNibble(base, machine);
+  if (nibble !== undefined) {
+    return nibble;
+  }
+  const branch = planBranch(base, machine);
+  if (branch !== undefined) {
+    return branch;
+  }
   const counter = planCounter(base, machine);
   if (counter !== undefined) {
     return counter;
@@ -322,6 +458,12 @@ export function motionMemoryAddress(plan: MotionPlan): number | undefined {
   }
   if (plan.type === "logic" && plan.other.type === "mem") {
     return plan.other.address;
+  }
+  if (plan.type === "alu" && plan.other.type === "mem") {
+    return plan.other.address;
+  }
+  if (plan.type === "nibble") {
+    return plan.address;
   }
   if (plan.type !== "travel") {
     return undefined;
@@ -878,17 +1020,17 @@ function readOpcode(base: MotionBase): OpcodeView | undefined {
     if (indexedMemoryOpcode(b1)) {
       return { op: b1, disp: b2 >= 0x80 ? b2 - 0x100 : b2, index };
     }
-    return { op: b1, index, imm: immediateLogicOpcode(b1) ? b2 : undefined };
+    return { op: b1, index, imm: immediateAluOpcode(b1) ? b2 : undefined };
   }
-  return { op: b0, imm: immediateLogicOpcode(b0) ? b1 : undefined };
+  return { op: b0, imm: immediateAluOpcode(b0) ? b1 : undefined };
 }
 
 function indexedMemoryOpcode(op: number): boolean {
   return op === 0x34 || op === 0x35 || (op & 0xc7) === 0x86;
 }
 
-function immediateLogicOpcode(op: number): boolean {
-  return op === 0xe6 || op === 0xee || op === 0xf6;
+function immediateAluOpcode(op: number): boolean {
+  return (op & 0xc7) === 0xc6;
 }
 
 function logicKind(op: number): LogicOp | undefined {
@@ -902,6 +1044,287 @@ function logicKind(op: number): LogicOp | undefined {
     return "or";
   }
   return undefined;
+}
+
+/** Eight columns, bit 0 first. A carry or borrow leaves each column for the next. */
+export function arithColumns(op: ArithOp, left: number, right: number, carryFlag: boolean): ArithColumn[] {
+  const subtract = op === "sub" || op === "sbc" || op === "cp";
+  const useCarry = op === "adc" || op === "sbc";
+  let carry: 0 | 1 = useCarry && carryFlag ? 1 : 0;
+  const columns: ArithColumn[] = [];
+  for (let bit = 0; bit < 8; bit += 1) {
+    const l = ((left >> bit) & 1) as 0 | 1;
+    const r = ((right >> bit) & 1) as 0 | 1;
+    const total = subtract ? l - r - carry : l + r + carry;
+    const sum = (total & 1) as 0 | 1;
+    const carryOut: 0 | 1 = subtract ? (total < 0 ? 1 : 0) : (total > 1 ? 1 : 0);
+    columns.push({ bit, left: l, right: r, carryIn: carry, sum, carryOut });
+    carry = carryOut;
+  }
+  return columns;
+}
+
+export function arithResult(columns: readonly ArithColumn[]): number {
+  return columns.reduce((result, column) => result | (column.sum << column.bit), 0) & 0xff;
+}
+
+/** Low byte first. carryOut of the low byte is carryIn of the high byte. */
+export function wordHalves(op: WordOp, left: number, right: number, carryFlag: boolean): [WordHalf, WordHalf] {
+  const subtract = op === "sbc";
+  let carry: 0 | 1 = (op === "adc" || op === "sbc") && carryFlag ? 1 : 0;
+  const halves: WordHalf[] = [];
+  for (let shift = 0; shift <= 8; shift += 8) {
+    const l = (left >> shift) & 0xff;
+    const r = (right >> shift) & 0xff;
+    const total = subtract ? l - r - carry : l + r + carry;
+    const carryOut: 0 | 1 = subtract ? (total < 0 ? 1 : 0) : (total > 0xff ? 1 : 0);
+    halves.push({ left: l, right: r, result: total & 0xff, carryIn: carry, carryOut });
+    carry = carryOut;
+  }
+  const low = halves[0];
+  const high = halves[1];
+  if (low === undefined || high === undefined) {
+    throw new Error("a word has two bytes");
+  }
+  return [low, high];
+}
+
+/** The correction this emulator adds, or subtracts when N is set. */
+export function daaAdjust(
+  before: number,
+  flags: { h: boolean; n: boolean; c: boolean },
+): { correction: number; after: number; subtract: boolean; low: boolean; high: boolean } {
+  const low = flags.h || (before & 0x0f) > 9;
+  const high = flags.c || before > 0x99;
+  let correction = 0;
+  if (low) {
+    correction |= 0x06;
+  }
+  if (high) {
+    correction |= 0x60;
+  }
+  const after = flags.n ? (before - correction) & 0xff : (before + correction) & 0xff;
+  return { correction, after, subtract: flags.n, low, high };
+}
+
+/** RLD moves each nibble left across A-low, (HL)-high, and (HL)-low. RRD moves them right. */
+export function nibbleRotate(op: "rld" | "rrd", a: number, mem: number): { a: number; mem: number } {
+  const aHigh = a & 0xf0;
+  const aLow = a & 0x0f;
+  const memHigh = (mem >> 4) & 0x0f;
+  const memLow = mem & 0x0f;
+  if (op === "rld") {
+    return { a: aHigh | memHigh, mem: (memLow << 4) | aLow };
+  }
+  return { a: aHigh | memLow, mem: (aLow << 4) | memHigh };
+}
+
+function planArith(base: MotionBase, machine: Machine): ArithMotion | undefined {
+  const decoded = readOpcode(base);
+  if (decoded === undefined) {
+    return undefined;
+  }
+  const op = arithKind(decoded.op);
+  if (op === undefined) {
+    return undefined;
+  }
+  const banks = machine.banks();
+  const afBank = banks.main.afActive ? banks.main : banks.alternate;
+  const left = (base.af >> 8) & 0xff;
+  const carryFlag = (base.af & 0x01) !== 0;
+  let right = 0;
+  let other: ArithMotion["other"];
+  if (decoded.imm !== undefined && immediateAluOpcode(decoded.op)) {
+    right = decoded.imm & 0xff;
+    other = { type: "source" };
+  } else {
+    const field = decoded.op & 7;
+    if (decoded.index !== undefined && (field === 4 || field === 5)) {
+      return undefined;
+    }
+    if (field === 6) {
+      const address = memoryAddress(decoded, base);
+      right = operandBytes({ type: "mem", address }, base, machine).before;
+      other = { type: "mem", address };
+    } else {
+      const name = BYTE_FIELDS[field];
+      if (name === undefined || name === "mem") {
+        return undefined;
+      }
+      right = registerByte(name, base);
+      other = { type: "reg", name };
+    }
+  }
+  const columns = arithColumns(op, left, right, carryFlag);
+  return {
+    type: "alu",
+    op,
+    left,
+    right,
+    result: arithResult(columns),
+    stored: op !== "cp",
+    columns,
+    other,
+    dest: { type: "reg", name: "a" },
+    flags: flagsOf(afBank.af),
+  };
+}
+
+function arithKind(op: number): ArithOp | undefined {
+  if ((op >= 0x80 && op <= 0x87) || op === 0xc6) {
+    return "add";
+  }
+  if ((op >= 0x88 && op <= 0x8f) || op === 0xce) {
+    return "adc";
+  }
+  if ((op >= 0x90 && op <= 0x97) || op === 0xd6) {
+    return "sub";
+  }
+  if ((op >= 0x98 && op <= 0x9f) || op === 0xde) {
+    return "sbc";
+  }
+  if ((op >= 0xb8 && op <= 0xbf) || op === 0xfe) {
+    return "cp";
+  }
+  return undefined;
+}
+
+function planWord(base: MotionBase, machine: Machine): WordMotion | undefined {
+  const [b0, b1] = base.opcodes;
+  let op: WordOp;
+  let pair: number;
+  let dest: RegName;
+  if (b0 === 0xed && (b1 & 0xcf) === 0x4a) {
+    op = "adc";
+    dest = "hl";
+    pair = (b1 >> 4) & 3;
+  } else if (b0 === 0xed && (b1 & 0xcf) === 0x42) {
+    op = "sbc";
+    dest = "hl";
+    pair = (b1 >> 4) & 3;
+  } else if ((b0 === 0xdd || b0 === 0xfd) && (b1 & 0xcf) === 0x09) {
+    op = "add";
+    dest = b0 === 0xdd ? "ix" : "iy";
+    pair = (b1 >> 4) & 3;
+  } else if ((b0 & 0xcf) === 0x09) {
+    op = "add";
+    dest = "hl";
+    pair = (b0 >> 4) & 3;
+  } else {
+    return undefined;
+  }
+  const other: RegName = dest !== "hl" && pair === 2 ? dest : PAIR_FIELDS[pair];
+  const after = activeWords(machine);
+  const left = wordValue(dest, base);
+  const right = wordValue(other, base);
+  const halves = wordHalves(op, left, right, (base.af & 0x01) !== 0);
+  const banks = machine.banks();
+  const afBank = banks.main.afActive ? banks.main : banks.alternate;
+  return {
+    type: "word",
+    op,
+    dest,
+    other,
+    left,
+    right,
+    result: wordValue(dest, after),
+    halves,
+    flags: flagsOf(afBank.af),
+  };
+}
+
+function planDaa(base: MotionBase, machine: Machine): DaaMotion | undefined {
+  if (base.opcodes[0] !== 0x27) {
+    return undefined;
+  }
+  const before = (base.af >> 8) & 0xff;
+  const h = (base.af & 0x10) !== 0;
+  const n = (base.af & 0x02) !== 0;
+  const c = (base.af & 0x01) !== 0;
+  const adjusted = daaAdjust(before, { h, n, c });
+  const banks = machine.banks();
+  const afBank = banks.main.afActive ? banks.main : banks.alternate;
+  return {
+    type: "daa",
+    before,
+    after: (afBank.af >> 8) & 0xff,
+    correction: adjusted.correction,
+    subtract: adjusted.subtract,
+    low: adjusted.low,
+    high: adjusted.high,
+    h,
+    n,
+    c,
+    flags: flagsOf(afBank.af),
+  };
+}
+
+function planNibble(base: MotionBase, machine: Machine): NibbleMotion | undefined {
+  if (base.opcodes[0] !== 0xed) {
+    return undefined;
+  }
+  const op = base.opcodes[1] === 0x6f ? "rld" : base.opcodes[1] === 0x67 ? "rrd" : undefined;
+  if (op === undefined) {
+    return undefined;
+  }
+  const address = base.hl & 0xffff;
+  const banks = machine.banks();
+  const afBank = banks.main.afActive ? banks.main : banks.alternate;
+  const aAfter = (afBank.af >> 8) & 0xff;
+  const memAfter = machine.memory[address] ?? 0;
+  const restored = nibbleRotate(op === "rld" ? "rrd" : "rld", aAfter, memAfter);
+  return {
+    type: "nibble",
+    op,
+    aBefore: restored.a,
+    aAfter,
+    memBefore: restored.mem,
+    memAfter,
+    address,
+    flags: flagsOf(afBank.af),
+  };
+}
+
+function planBranch(base: MotionBase, machine: Machine): BranchMotion | undefined {
+  const opcode = base.opcodes[0];
+  const kind = opcode === 0x10
+    ? "djnz"
+    : opcode === 0x18 || opcode === 0x20 || opcode === 0x28 || opcode === 0x30 || opcode === 0x38
+      ? "jr"
+      : undefined;
+  if (kind === undefined) {
+    return undefined;
+  }
+  const displacement = base.opcodes[1] >= 0x80 ? base.opcodes[1] - 0x100 : base.opcodes[1];
+  const next = (base.pc + 2) & 0xffff;
+  const target = (next + displacement) & 0xffff;
+  const taken = (machine.cpu.regs.pc & 0xffff) === target;
+  const banks = machine.banks();
+  const exx = banks.main.exxActive ? banks.main : banks.alternate;
+  const plan: BranchMotion = {
+    type: "branch",
+    kind,
+    taken,
+    displacement,
+    fromLine: machine.sourceLine(base.pc),
+    toLine: taken ? machine.sourceLine(target) : undefined,
+  };
+  if (kind === "djnz") {
+    plan.before = (base.bc >> 8) & 0xff;
+    plan.after = (exx.bc >> 8) & 0xff;
+  }
+  return plan;
+}
+
+function flagsOf(af: number): FlagPicture {
+  return {
+    s: (af & 0x80) !== 0,
+    z: (af & 0x40) !== 0,
+    h: (af & 0x10) !== 0,
+    pv: (af & 0x04) !== 0,
+    n: (af & 0x02) !== 0,
+    c: (af & 0x01) !== 0,
+  };
 }
 
 function planLogic(base: MotionBase, machine: Machine): LogicMotion | undefined {

@@ -104,6 +104,8 @@ export function mount(root: HTMLElement): void {
     sign?: boolean;
     zero?: boolean;
     parity?: boolean;
+    half?: boolean;
+    subtract?: boolean;
   } | undefined;
   let popConsole = false;
   let savedText = "";
@@ -152,6 +154,7 @@ export function mount(root: HTMLElement): void {
             <input type="range" id="motion-speed" min="0.1" max="2" step="0.05" value="${motionRate}" aria-label="Animation speed" aria-valuemin="0.1" aria-valuemax="2" aria-valuenow="${motionRate}">
             <span id="motion-speed-readout">${speedReadout(motionRate)}</span>
           </label>
+          <button type="button" id="motion-pause" aria-pressed="false">Pause</button>
         </div>
         <div class="format" role="radiogroup" aria-label="Display format">
           <span class="format-label">Values</span>
@@ -298,6 +301,17 @@ export function mount(root: HTMLElement): void {
     const slider = required<HTMLInputElement>(root, "#motion-speed");
     motionRate = writeMotionRate(Number(slider.value));
     paintMotion();
+  });
+  required<HTMLButtonElement>(root, "#motion-pause").addEventListener("click", () => {
+    if (stage.isHeld()) {
+      stage.resume();
+    } else {
+      stage.pause();
+    }
+    const button = required<HTMLButtonElement>(root, "#motion-pause");
+    const held = stage.isHeld();
+    button.setAttribute("aria-pressed", held ? "true" : "false");
+    button.textContent = held ? "Resume" : "Pause";
   });
   required<HTMLButtonElement>(root, "#file-menu-button").addEventListener("click", () => {
     toggleMenu();
@@ -449,6 +463,16 @@ export function mount(root: HTMLElement): void {
       };
     } else if (motionOn && plan.type === "bit" && plan.op === "bit") {
       flagHold = { side: activeSide, zero: plan.zeroBefore };
+    } else if (motionOn && (plan.type === "alu" || plan.type === "word" || plan.type === "daa" || plan.type === "nibble")) {
+      flagHold = {
+        side: activeSide,
+        carry: (base.af & 0x01) !== 0,
+        sign: (base.af & 0x80) !== 0,
+        zero: (base.af & 0x40) !== 0,
+        parity: (base.af & 0x04) !== 0,
+        half: (base.af & 0x10) !== 0,
+        subtract: (base.af & 0x02) !== 0,
+      };
     }
     render();
     popConsole = false;
@@ -466,7 +490,12 @@ export function mount(root: HTMLElement): void {
           ? { from: markFrom, live: markNow }
           : undefined,
         rate: motionRate,
-        onSettled: plan.type === "shift" || (plan.type === "bit" && plan.op === "bit")
+        onSettled: plan.type === "shift"
+          || (plan.type === "bit" && plan.op === "bit")
+          || plan.type === "alu"
+          || plan.type === "word"
+          || plan.type === "daa"
+          || plan.type === "nibble"
           ? () => {
             flagHold = undefined;
             render();
@@ -910,6 +939,12 @@ export function mount(root: HTMLElement): void {
     if (key === "pv") {
       return flagHold.parity;
     }
+    if (key === "h") {
+      return flagHold.half;
+    }
+    if (key === "n") {
+      return flagHold.subtract;
+    }
     return undefined;
   }
 
@@ -1096,6 +1131,7 @@ export function mount(root: HTMLElement): void {
   function gutterRow(lineNo: number, current: boolean): HTMLElement {
     const row = document.createElement("div");
     row.className = current ? "gutter-row current" : "gutter-row";
+    row.dataset.line = String(lineNo);
     const marker = document.createElement("span");
     marker.className = "pc-marker";
     if (current) {
