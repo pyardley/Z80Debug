@@ -17,7 +17,7 @@ export const COUNTER_MS = 1100;
 
 /** Playback rate for every toy animation. 1 is the pace the page opens with. */
 export const SPEED_STORAGE_KEY = "z80debug.animationSpeed";
-export const SPEED_MIN = 0.25;
+export const SPEED_MIN = 0.1;
 export const SPEED_MAX = 2;
 export const SPEED_DEFAULT = 1;
 
@@ -29,7 +29,7 @@ export function clampSpeed(value: number): number {
   return Math.round(clamped * 100) / 100;
 }
 
-/** How long a built-in duration lasts at this rate. 0.25× takes four times as long. */
+/** How long a built-in duration lasts at this rate. 0.1× takes ten times as long. */
 export function scaledMs(base: number, rate: number): number {
   return Math.round(base / clampSpeed(rate));
 }

@@ -149,7 +149,7 @@ export function mount(root: HTMLElement): void {
           <button type="button" id="motion-toggle" aria-pressed="true">Motion on</button>
           <label class="speed">
             <span class="speed-name">Speed</span>
-            <input type="range" id="motion-speed" min="0.25" max="2" step="0.05" value="${motionRate}" aria-label="Animation speed" aria-valuemin="0.25" aria-valuemax="2" aria-valuenow="${motionRate}">
+            <input type="range" id="motion-speed" min="0.1" max="2" step="0.05" value="${motionRate}" aria-label="Animation speed" aria-valuemin="0.1" aria-valuemax="2" aria-valuenow="${motionRate}">
             <span id="motion-speed-readout">${speedReadout(motionRate)}</span>
           </label>
         </div>
