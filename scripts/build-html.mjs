@@ -130,13 +130,14 @@ function assertBundle(code) {
     "shifts.asm",
     "bits.asm",
     "logic.asm",
+    "arithmetic.asm",
     "DAA uses this to adjust BCD.",
   ]) {
     if (!code.includes(needle)) {
       throw new Error(`bundle missing ${JSON.stringify(needle)}`);
     }
   }
-  if (code.includes("logic-bit") || code.includes("counter-wheel") || code.includes("motion-speed") || code.includes("z80debug.animationSpeed")) {
+  if (code.includes("logic-bit") || code.includes("counter-wheel") || code.includes("motion-speed") || code.includes("z80debug.animationSpeed") || code.includes("motion-pause") || code.includes("alu-bit")) {
     throw new Error("plain bundle includes a toy animation or the speed control");
   }
 }
@@ -253,9 +254,12 @@ function assertPlayBundle(code) {
     "shifts.asm",
     "bits.asm",
     "logic.asm",
+    "arithmetic.asm",
     "logic-bit",
     "counter-wheel",
+    "alu-bit",
     "motion-speed",
+    "motion-pause",
     "z80debug.animationSpeed",
     "DAA uses this to adjust BCD.",
   ]) {

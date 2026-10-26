@@ -1,3 +1,4 @@
+import arithmetic from "../examples/arithmetic.asm";
 import bits from "../examples/bits.asm";
 import logic from "../examples/logic.asm";
 import consoleEcho from "../examples/console-echo.asm";
@@ -28,6 +29,7 @@ export const EXAMPLES: readonly ExampleProgram[] = [
   { id: "shifts", label: "Shifts", filename: "shifts.asm", source: shifts },
   { id: "bits", label: "Bits", filename: "bits.asm", source: bits },
   { id: "logic", label: "Logic", filename: "logic.asm", source: logic },
+  { id: "arithmetic", label: "Arithmetic", filename: "arithmetic.asm", source: arithmetic },
   { id: "table", label: "Table", filename: "table.asm", source: table },
 ];
 
