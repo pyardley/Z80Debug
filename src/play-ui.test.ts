@@ -64,9 +64,13 @@ describe("tabletop debugger", () => {
     expect(token?.getAttribute("data-value")).toBe("17");
 
     click(root, "#step");
-    expect(text(root, "[data-key='main.bc']")).toBe("1111");
-    expect(document.querySelectorAll(".travel-token")).toHaveLength(1);
-    expect(document.querySelector(".travel-token")?.textContent).toBe("1111");
+    expect(text(root, "[data-key='main.b']")).toBe("11");
+    expect(text(root, "[data-key='main.c']")).toBe("11");
+    expect(root.querySelector("[data-key='main.bc']")).toBeNull();
+    expect(document.querySelector("[data-role='word']")?.textContent).toBe("1111");
+    expect(document.querySelector("[data-role='high']")?.textContent).toBe("11");
+    expect(document.querySelector("[data-role='low']")?.textContent).toBe("11");
+    expect(document.querySelector("[data-role='word']")?.getAttribute("data-pair")).toBe("split");
   });
 
   it("updates the register when motion is off", () => {
@@ -607,7 +611,9 @@ describe("tabletop debugger", () => {
     click(root, "#step");
     click(root, "#step");
     click(root, "#step");
-    expect(text(root, "[data-key='main.hl']")).toBe("0064");
+    expect(text(root, "[data-key='main.h']")).toBe("00");
+    expect(text(root, "[data-key='main.l']")).toBe("64");
+    expect(root.querySelector("[data-key='main.hl']")).toBeNull();
     expect(bitsOf(".alu-bit", "left")).toBe("00099");
     expect(bitsOf(".alu-bit", "right")).toBe("00001");
     expect(bitsOf(".alu-bit", "result")).toBe("00100");

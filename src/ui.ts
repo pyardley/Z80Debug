@@ -748,8 +748,10 @@ export function mount(root: HTMLElement): void {
     grid.append(
       regCell("PC", formatWord(regs.pc, format), "pc", true),
       regCell("SP", formatWord(regs.sp, format), "sp", true),
-      regCell("IX", formatWord(regs.ix, format), "ix", true),
-      regCell("IY", formatWord(regs.iy, format), "iy", true),
+      regCell("IXH", formatByte((regs.ix >> 8) & 0xff, format), "ixh", false),
+      regCell("IXL", formatByte(regs.ix & 0xff, format), "ixl", false),
+      regCell("IYH", formatByte((regs.iy >> 8) & 0xff, format), "iyh", false),
+      regCell("IYL", formatByte(regs.iy & 0xff, format), "iyl", false),
       regCell("I", formatByte(regs.i, format), "i", false),
       regCell("R", formatByte(machine.refreshRegister(), format), "r", false),
     );
@@ -777,7 +779,6 @@ export function mount(root: HTMLElement): void {
       [
         ["A", hi(bank.af), false],
         ["F", lo(bank.af), false],
-        [prefix === "main" ? "AF" : "AF'", bank.af, true],
       ],
       prefix,
       bank.af,
@@ -797,17 +798,14 @@ export function mount(root: HTMLElement): void {
       byteLine(prefix, [
         ["B", hi(bank.bc), `${prefix}.b`],
         ["C", lo(bank.bc), `${prefix}.c`],
-        [prefix === "main" ? "BC" : "BC'", bank.bc, `${prefix}.bc`],
       ]),
       byteLine(prefix, [
         ["D", hi(bank.de), `${prefix}.d`],
         ["E", lo(bank.de), `${prefix}.e`],
-        [prefix === "main" ? "DE" : "DE'", bank.de, `${prefix}.de`],
       ]),
       byteLine(prefix, [
         ["H", hi(bank.hl), `${prefix}.h`],
         ["L", lo(bank.hl), `${prefix}.l`],
-        [prefix === "main" ? "HL" : "HL'", bank.hl, `${prefix}.hl`],
       ]),
     );
     return column;
@@ -855,8 +853,7 @@ export function mount(root: HTMLElement): void {
     const row = document.createElement("div");
     row.className = "reg-row";
     for (const [label, value, key] of cells) {
-      const wide = key.endsWith(".bc") || key.endsWith(".de") || key.endsWith(".hl");
-      row.append(regCell(label, wide ? formatWord(value, format) : formatByte(value, format), key, wide));
+      row.append(regCell(label, formatByte(value, format), key, false));
     }
     void prefix;
     return row;
