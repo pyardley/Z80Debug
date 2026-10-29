@@ -181,7 +181,9 @@ describe("console panel", () => {
     expect(root.querySelector("#memory-stack [data-stack-top='true']")?.textContent).toContain("FEFE");
     click(root, "#step");
     expect(root.querySelector("#memory-stack [data-stack-top='true']")?.textContent).toContain("FF00");
-    expect(root.querySelector("[data-key='main.de']")?.textContent).toBe("BEEF");
+    expect(root.querySelector("[data-key='main.d']")?.textContent).toBe("BE");
+    expect(root.querySelector("[data-key='main.e']")?.textContent).toBe("EF");
+    expect(root.querySelector("[data-key='main.de']")).toBeNull();
     const word = root.querySelector("#memory-stack [data-addr='65278']");
     expect(word?.textContent).toBe("BEEF");
     expect(word?.parentElement?.querySelector("[data-label]")?.textContent).toBe("BC → DE");

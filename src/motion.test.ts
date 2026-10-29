@@ -98,11 +98,41 @@ describe("planMotion", () => {
     });
   });
 
-  it("carries a word immediate into BC", () => {
-    const plan = planMotion(facts({ mnemonic: "LD BC,0X1111", bc: 0x1111 }));
-    expect(plan).toMatchObject({
+  it("splits a word immediate into the two bytes of BC", () => {
+    const plan = planMotion(facts({ mnemonic: "LD BC,0X5678", bc: 0x5678 }));
+    expect(plan).toEqual({
+      type: "pair",
+      dir: "split",
+      value: 0x5678,
+      high: 0x56,
+      low: 0x78,
+      highReg: "b",
+      lowReg: "c",
+      word: { type: "source" },
+    });
+    expect(planMotion(facts({ mnemonic: "LD IX,0X4000", ix: 0x4000 }))).toMatchObject({
+      type: "pair",
+      dir: "split",
+      high: 0x40,
+      low: 0x00,
+      highReg: "ixh",
+      lowReg: "ixl",
+      word: { type: "source" },
+    });
+    expect(planMotion(facts({
+      mnemonic: "LD HL,(0XC000)",
+      hl: 0x1234,
+    }))).toMatchObject({
+      type: "pair",
+      dir: "split",
+      value: 0x1234,
+      highReg: "h",
+      lowReg: "l",
+      word: { type: "mem", address: 0xc000 },
+    });
+    expect(planMotion(facts({ mnemonic: "LD SP,0XFF00", sp: 0xff00 }))).toMatchObject({
       type: "travel",
-      moves: [{ from: { type: "source" }, to: { type: "reg", name: "bc" }, value: 0x1111, width: 16 }],
+      moves: [{ to: { type: "reg", name: "sp" }, value: 0xff00, width: 16 }],
     });
   });
 
@@ -266,7 +296,15 @@ describe("examples", () => {
     ]);
     expect(seen[2].sp).toBe(0xfefe);
     expect(seen[2].plan).toMatchObject({
-      moves: [{ from: { type: "reg", name: "bc" }, to: { type: "mem", address: 0xfefe }, value: 0xbeef, width: 16, label: "BC" }],
+      type: "pair",
+      dir: "join",
+      value: 0xbeef,
+      high: 0xbe,
+      low: 0xef,
+      highReg: "b",
+      lowReg: "c",
+      word: { type: "mem", address: 0xfefe },
+      label: "BC",
     });
     expect(seen[3].sp).toBe(0xfefc);
     expect(seen[3].plan).toMatchObject({
@@ -278,7 +316,15 @@ describe("examples", () => {
     });
     expect(seen[5].sp).toBe(0xff00);
     expect(seen[5].plan).toMatchObject({
-      moves: [{ from: { type: "mem", address: 0xfefe }, to: { type: "reg", name: "de" }, value: 0xbeef, label: "BC → DE" }],
+      type: "pair",
+      dir: "split",
+      value: 0xbeef,
+      high: 0xbe,
+      low: 0xef,
+      highReg: "d",
+      lowReg: "e",
+      word: { type: "mem", address: 0xfefe },
+      label: "BC → DE",
     });
   });
 });

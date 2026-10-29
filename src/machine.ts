@@ -300,10 +300,18 @@ export class Machine {
       this.halted = false;
     } else if (key === "sp") {
       regs.sp = wordValue;
-    } else if (key === "ix") {
-      regs.ix = wordValue;
-    } else if (key === "iy") {
-      regs.iy = wordValue;
+    } else if (key === "ix" || key === "ixh" || key === "ixl") {
+      regs.ix = key === "ixh"
+        ? ((byte << 8) | (regs.ix & 0xff)) & 0xffff
+        : key === "ixl"
+          ? ((regs.ix & 0xff00) | byte) & 0xffff
+          : wordValue;
+    } else if (key === "iy" || key === "iyh" || key === "iyl") {
+      regs.iy = key === "iyh"
+        ? ((byte << 8) | (regs.iy & 0xff)) & 0xffff
+        : key === "iyl"
+          ? ((regs.iy & 0xff00) | byte) & 0xffff
+          : wordValue;
     } else if (key === "i") {
       regs.i = byte;
     } else if (key === "r") {
@@ -490,7 +498,11 @@ export class Machine {
     keys.set("pc", regs.pc & 0xffff);
     keys.set("sp", regs.sp & 0xffff);
     keys.set("ix", regs.ix & 0xffff);
+    keys.set("ixh", (regs.ix >> 8) & 0xff);
+    keys.set("ixl", regs.ix & 0xff);
     keys.set("iy", regs.iy & 0xffff);
+    keys.set("iyh", (regs.iy >> 8) & 0xff);
+    keys.set("iyl", regs.iy & 0xff);
     keys.set("i", regs.i & 0xff);
     keys.set("r", regs.r & 0xff);
     return keys;

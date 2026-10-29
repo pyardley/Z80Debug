@@ -8,10 +8,12 @@ import {
   LOGIC_MS,
   MOTION_MS,
   NIBBLE_MS,
+  PAIR_MS,
   SHIFT_MS,
   WORD_MS,
   counterDigits,
   logicRows,
+  pairHalves,
   scaledMs,
   shiftTracks,
   type Anchor,
@@ -22,6 +24,7 @@ import {
   type FlagPicture,
   type MotionPlan,
   type NibbleMotion,
+  type PairMotion,
   type RegName,
   type BitMotion,
   type CounterMotion,
@@ -44,7 +47,7 @@ interface Box {
   height: number;
 }
 
-const AF_REGS = new Set<RegName>(["a", "af"]);
+const AF_REGS = new Set<RegName>(["a", "f", "af"]);
 const EXX_REGS = new Set<RegName>(["b", "c", "d", "e", "h", "l", "bc", "de", "hl"]);
 
 interface Clock {
@@ -154,6 +157,8 @@ export class MotionStage {
       for (const move of input.plan.moves) {
         this.flyToken(move, input.format, input.banks, input.sourceRect);
       }
+    } else if (input.plan.type === "pair") {
+      this.flyPair(input.plan, input.format, input.banks, input.sourceRect);
     } else if (input.plan.type === "shift") {
       this.flyShift(input.plan, input.banks);
     } else if (input.plan.type === "bit") {
@@ -314,6 +319,102 @@ export class MotionStage {
       { transform: `translate(${midX}px, ${midY}px) scale(1.08)`, offset: 0.62 },
       { transform: `translate(${end.x}px, ${end.y}px) scale(1)` },
     ]);
+  }
+
+  private flyPair(
+    plan: PairMotion,
+    format: DisplayFormat,
+    banks: Banks,
+    sourceRect: Box | undefined,
+  ): void {
+    const wordBox = this.anchorBox(plan.word, banks, sourceRect);
+    const highBox = this.anchorBox({ type: "reg", name: plan.highReg }, banks, sourceRect);
+    const lowBox = this.anchorBox({ type: "reg", name: plan.lowReg }, banks, sourceRect);
+    if (wordBox === undefined || highBox === undefined || lowBox === undefined) {
+      return;
+    }
+    this.dim({ type: "reg", name: plan.highReg }, banks);
+    this.dim({ type: "reg", name: plan.lowReg }, banks);
+    if (plan.word.type === "mem" || plan.word.type === "reg") {
+      this.dim(plan.word, banks);
+      if (plan.word.type === "mem") {
+        this.dim({ type: "mem", address: (plan.word.address + 1) & 0xffff }, banks);
+      }
+    }
+    const wordText = plan.label === undefined || plan.label === ""
+      ? formatWord(plan.value, format).trim()
+      : `${plan.label} ${formatWord(plan.value, format).trim()}`;
+    const word = this.pairToken("word", plan.value, wordText);
+    const high = this.pairToken("high", plan.high, formatByte(plan.high, format).trim());
+    const low = this.pairToken("low", plan.low, formatByte(plan.low, format).trim());
+    word.dataset.pair = plan.dir;
+    high.dataset.pair = plan.dir;
+    low.dataset.pair = plan.dir;
+    const wordSize = { w: word.offsetWidth || 72, h: word.offsetHeight || 36 };
+    const byteSize = { w: high.offsetWidth || 48, h: high.offsetHeight || 36 };
+    const wordAt = center(wordBox, wordSize.w, wordSize.h);
+    const highAt = center(highBox, byteSize.w, byteSize.h);
+    const lowAt = center(lowBox, byteSize.w, byteSize.h);
+    const meet = {
+      x: (highAt.x + lowAt.x) / 2,
+      y: Math.min(highAt.y, lowAt.y) - 46,
+    };
+    const splitHigh = { x: wordAt.x - byteSize.w * 0.55, y: wordAt.y - 42 };
+    const splitLow = { x: wordAt.x + wordSize.w * 0.45, y: wordAt.y - 42 };
+    if (plan.dir === "split") {
+      this.animate(word, [
+        { transform: place(wordAt), opacity: 1 },
+        { transform: place({ x: wordAt.x, y: wordAt.y - 18 }), opacity: 1, offset: 0.22 },
+        { transform: place({ x: wordAt.x, y: wordAt.y - 18 }), opacity: 1, offset: 0.4 },
+        { transform: place({ x: wordAt.x, y: wordAt.y - 18 }), opacity: 0, offset: 0.52 },
+        { transform: place({ x: wordAt.x, y: wordAt.y - 18 }), opacity: 0 },
+      ], PAIR_MS);
+      this.animate(high, [
+        { transform: place(splitHigh), opacity: 0 },
+        { transform: place(splitHigh), opacity: 0, offset: 0.28 },
+        { transform: place(splitHigh), opacity: 1, offset: 0.42 },
+        { transform: place(splitHigh), opacity: 1, offset: 0.62 },
+        { transform: place(highAt), opacity: 1 },
+      ], PAIR_MS);
+      this.animate(low, [
+        { transform: place(splitLow), opacity: 0 },
+        { transform: place(splitLow), opacity: 0, offset: 0.28 },
+        { transform: place(splitLow), opacity: 1, offset: 0.42 },
+        { transform: place(splitLow), opacity: 1, offset: 0.62 },
+        { transform: place(lowAt), opacity: 1 },
+      ], PAIR_MS);
+      return;
+    }
+    this.animate(high, [
+      { transform: place(highAt), opacity: 1 },
+      { transform: place(meet), opacity: 1, offset: 0.38 },
+      { transform: place(meet), opacity: 0, offset: 0.5 },
+      { transform: place(meet), opacity: 0 },
+    ], PAIR_MS);
+    this.animate(low, [
+      { transform: place(lowAt), opacity: 1 },
+      { transform: place(meet), opacity: 1, offset: 0.38 },
+      { transform: place(meet), opacity: 0, offset: 0.5 },
+      { transform: place(meet), opacity: 0 },
+    ], PAIR_MS);
+    this.animate(word, [
+      { transform: place(meet), opacity: 0 },
+      { transform: place(meet), opacity: 0, offset: 0.36 },
+      { transform: place(meet), opacity: 1, offset: 0.5 },
+      { transform: place(wordAt), opacity: 1 },
+    ], PAIR_MS);
+  }
+
+  private pairToken(role: "word" | "high" | "low", value: number, text: string): HTMLElement {
+    const token = this.root.ownerDocument.createElement("div");
+    token.className = "travel-token";
+    token.dataset.role = role;
+    token.dataset.value = String(value);
+    token.setAttribute("aria-hidden", "true");
+    token.textContent = text;
+    this.root.ownerDocument.body.append(token);
+    this.nodes.push(token);
+    return token;
   }
 
   private flyShift(plan: ShiftMotion, banks: Banks): void {
@@ -818,6 +919,14 @@ export class MotionStage {
     if (anchor.type === "source" || anchor.type === "console") {
       return;
     }
+    if (anchor.type === "reg") {
+      const halves = pairHalves(anchor.name);
+      if (halves !== undefined) {
+        this.dim({ type: "reg", name: halves.high }, banks);
+        this.dim({ type: "reg", name: halves.low }, banks);
+        return;
+      }
+    }
     const elements = anchor.type === "mem"
       ? Array.from(this.root.querySelectorAll<HTMLElement>(`[data-addr="${anchor.address}"]`))
       : [this.anchorElement(anchor, banks)].filter((element): element is HTMLElement => element !== null);
@@ -828,6 +937,17 @@ export class MotionStage {
   }
 
   private anchorBox(anchor: Anchor, banks: Banks, sourceRect: Box | undefined): Box | undefined {
+    if (anchor.type === "reg") {
+      const halves = pairHalves(anchor.name);
+      if (halves !== undefined) {
+        const boxes = [halves.high, halves.low]
+          .map((name) => boxOf(this.anchorElement({ type: "reg", name }, banks)))
+          .filter((box): box is Box => box !== undefined);
+        if (boxes.length > 0) {
+          return unionBox(boxes);
+        }
+      }
+    }
     if (anchor.type === "source") {
       return sourceRect ?? boxOf(this.root.querySelector("#source-scroll"));
     }
@@ -1451,13 +1571,18 @@ function planDuration(plan: MotionPlan): number {
       return BRANCH_MS;
     case "nibble":
       return NIBBLE_MS;
+    case "pair":
+      return PAIR_MS;
     default:
       return MOTION_MS;
   }
 }
 
 function regKey(name: RegName, banks: Banks): string | undefined {
-  if (name === "sp" || name === "pc" || name === "ix" || name === "iy" || name === "i" || name === "r") {
+  if (
+    name === "sp" || name === "pc" || name === "ix" || name === "iy" || name === "i" || name === "r"
+    || name === "ixh" || name === "ixl" || name === "iyh" || name === "iyl"
+  ) {
     return name;
   }
   if (AF_REGS.has(name)) {
@@ -1467,6 +1592,18 @@ function regKey(name: RegName, banks: Banks): string | undefined {
     return `${banks.main.exxActive ? "main" : "alt"}.${name}`;
   }
   return undefined;
+}
+
+function place(point: { x: number; y: number }): string {
+  return `translate(${point.x}px, ${point.y}px)`;
+}
+
+function unionBox(boxes: Box[]): Box {
+  const left = Math.min(...boxes.map((box) => box.left));
+  const top = Math.min(...boxes.map((box) => box.top));
+  const right = Math.max(...boxes.map((box) => box.left + box.width));
+  const bottom = Math.max(...boxes.map((box) => box.top + box.height));
+  return { left, top, width: right - left, height: bottom - top };
 }
 
 function boxOf(element: Element | null): Box | undefined {

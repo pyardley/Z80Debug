@@ -6,6 +6,9 @@ import { formatStackLabel } from "./stack";
 /** A short trip, about half a second. Stepping again cancels whatever is still in the air. */
 export const MOTION_MS = 520;
 
+/** A word splits into two bytes, or two bytes join into a word, then the chip finishes the trip. */
+export const PAIR_MS = 1080;
+
 /** Pop the byte into bits, slide them, and land the leaving bit on Carry. */
 export const SHIFT_MS = 900;
 
@@ -72,7 +75,8 @@ export interface ShiftTrack {
 }
 
 export type RegName =
-  | "a" | "b" | "c" | "d" | "e" | "h" | "l" | "i" | "r"
+  | "a" | "f" | "b" | "c" | "d" | "e" | "h" | "l" | "i" | "r"
+  | "ixh" | "ixl" | "iyh" | "iyl"
   | "af" | "bc" | "de" | "hl" | "sp" | "ix" | "iy" | "pc";
 
 export type Anchor =
@@ -88,6 +92,20 @@ export interface Travel {
   width: 8 | 16;
   pop: boolean;
   /** Pair name, return, or source → destination. Present on stack traffic. */
+  label?: string;
+}
+
+/** A register pair shown as two bytes. Split lands the bytes. Join sends the word. */
+export interface PairMotion {
+  type: "pair";
+  dir: "split" | "join";
+  value: number;
+  high: number;
+  low: number;
+  highReg: RegName;
+  lowReg: RegName;
+  /** Where the word starts (split) or lands (join). */
+  word: Anchor;
   label?: string;
 }
 
@@ -248,6 +266,7 @@ export type MotionPlan =
   | { type: "none" }
   | { type: "swap"; group: "af" | "exx" }
   | { type: "travel"; moves: Travel[] }
+  | PairMotion
   | ShiftMotion
   | BitMotion
   | LogicMotion
@@ -301,10 +320,13 @@ export interface MotionBase {
 const NONE: MotionPlan = { type: "none" };
 
 const REG_NAMES = new Set<string>([
-  "a", "b", "c", "d", "e", "h", "l", "i", "r", "af", "bc", "de", "hl", "sp", "ix", "iy", "pc",
+  "a", "f", "b", "c", "d", "e", "h", "l", "i", "r", "ixh", "ixl", "iyh", "iyl",
+  "af", "bc", "de", "hl", "sp", "ix", "iy", "pc",
 ]);
 
-const BYTE_REGS = new Set<RegName>(["a", "b", "c", "d", "e", "h", "l", "i", "r"]);
+const BYTE_REGS = new Set<RegName>([
+  "a", "f", "b", "c", "d", "e", "h", "l", "i", "r", "ixh", "ixl", "iyh", "iyl",
+]);
 
 type Operand =
   | { kind: "reg"; name: RegName }
@@ -418,7 +440,7 @@ export function planAfterStep(base: MotionBase, machine: Machine): MotionPlan {
 }
 
 function attachStackLabel(plan: MotionPlan, machine: Machine, spBefore: number): MotionPlan {
-  if (plan.type !== "travel") {
+  if (plan.type !== "travel" && plan.type !== "pair") {
     return plan;
   }
   const mnemonic = machine.lastInstruction.trim().toUpperCase();
@@ -435,6 +457,9 @@ function attachStackLabel(plan: MotionPlan, machine: Machine, spBefore: number):
   const label = formatStackLabel(machine.stackWords.get(address));
   if (label === "") {
     return plan;
+  }
+  if (plan.type === "pair") {
+    return plan.word.type === "mem" && plan.word.address === address ? { ...plan, label } : plan;
   }
   return {
     type: "travel",
@@ -457,6 +482,9 @@ export function motionMemoryAddress(plan: MotionPlan): number | undefined {
   }
   if (plan.type === "nibble") {
     return plan.address;
+  }
+  if (plan.type === "pair" && plan.word.type === "mem") {
+    return plan.word.address;
   }
   if (plan.type !== "travel") {
     return undefined;
@@ -526,6 +554,10 @@ export function planMotion(facts: MotionFacts): MotionPlan {
       return NONE;
     }
     const address = (facts.spBefore - 2) & 0xffff;
+    const parts = pairHalves(name);
+    if (parts !== undefined) {
+      return pairPlan("join", valueOf(name, facts), parts, { type: "mem", address });
+    }
     return { type: "travel", moves: [carry(reg(name), { type: "mem", address }, valueOf(name, facts), widthOf(name))] };
   }
 
@@ -536,6 +568,10 @@ export function planMotion(facts: MotionFacts): MotionPlan {
       return NONE;
     }
     const address = facts.spBefore & 0xffff;
+    const parts = pairHalves(name);
+    if (parts !== undefined) {
+      return pairPlan("split", valueOf(name, facts), parts, { type: "mem", address });
+    }
     return { type: "travel", moves: [carry({ type: "mem", address }, reg(name), valueOf(name, facts), widthOf(name))] };
   }
 
@@ -576,6 +612,23 @@ function planLoad(destText: string, srcText: string, facts: MotionFacts): Motion
   const src = parseOperand(srcText);
   if (dest === undefined || src === undefined) {
     return NONE;
+  }
+  const intoPair = dest.kind === "reg" ? pairHalves(dest.name) : undefined;
+  if (intoPair !== undefined && src.kind !== "reg") {
+    const from = place(src, facts);
+    if (from === undefined) {
+      return NONE;
+    }
+    const value = src.kind === "imm" ? src.value : valueOf(dest.name, facts);
+    return pairPlan("split", value, intoPair, from);
+  }
+  const fromPair = src.kind === "reg" ? pairHalves(src.name) : undefined;
+  if (fromPair !== undefined && dest.kind !== "reg") {
+    const to = place(dest, facts);
+    if (to === undefined) {
+      return NONE;
+    }
+    return pairPlan("join", valueOf(src.name, facts), fromPair, to);
   }
   const from = place(src, facts);
   const to = place(dest, facts);
@@ -662,6 +715,45 @@ function reg(name: RegName): Anchor {
   return { type: "reg", name };
 }
 
+/** The two bytes a pair is drawn as. SP and PC stay whole addresses. */
+export function pairHalves(name: RegName): { high: RegName; low: RegName } | undefined {
+  switch (name) {
+    case "af":
+      return { high: "a", low: "f" };
+    case "bc":
+      return { high: "b", low: "c" };
+    case "de":
+      return { high: "d", low: "e" };
+    case "hl":
+      return { high: "h", low: "l" };
+    case "ix":
+      return { high: "ixh", low: "ixl" };
+    case "iy":
+      return { high: "iyh", low: "iyl" };
+    default:
+      return undefined;
+  }
+}
+
+function pairPlan(
+  dir: "split" | "join",
+  value: number,
+  parts: { high: RegName; low: RegName },
+  word: Anchor,
+): PairMotion {
+  const wordValue = value & 0xffff;
+  return {
+    type: "pair",
+    dir,
+    value: wordValue,
+    high: (wordValue >> 8) & 0xff,
+    low: wordValue & 0xff,
+    highReg: parts.high,
+    lowReg: parts.low,
+    word,
+  };
+}
+
 function widthOf(name: RegName): 8 | 16 {
   return BYTE_REGS.has(name) ? 8 : 16;
 }
@@ -670,6 +762,8 @@ function valueOf(name: RegName, facts: MotionFacts): number {
   switch (name) {
     case "a":
       return facts.a;
+    case "f":
+      return facts.af & 0xff;
     case "b":
       return (facts.bc >> 8) & 0xff;
     case "c":
@@ -700,6 +794,14 @@ function valueOf(name: RegName, facts: MotionFacts): number {
       return facts.ix;
     case "iy":
       return facts.iy;
+    case "ixh":
+      return (facts.ix >> 8) & 0xff;
+    case "ixl":
+      return facts.ix & 0xff;
+    case "iyh":
+      return (facts.iy >> 8) & 0xff;
+    case "iyl":
+      return facts.iy & 0xff;
     case "pc":
       return facts.pc;
   }
