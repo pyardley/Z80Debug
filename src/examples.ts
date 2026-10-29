@@ -1,5 +1,6 @@
 import arithmetic from "../examples/arithmetic.asm";
 import bits from "../examples/bits.asm";
+import ixHalves from "../examples/ix-halves.asm";
 import logic from "../examples/logic.asm";
 import consoleEcho from "../examples/console-echo.asm";
 import consoleExample from "../examples/console.asm";
@@ -30,6 +31,7 @@ export const EXAMPLES: readonly ExampleProgram[] = [
   { id: "bits", label: "Bits", filename: "bits.asm", source: bits },
   { id: "logic", label: "Logic", filename: "logic.asm", source: logic },
   { id: "arithmetic", label: "Arithmetic", filename: "arithmetic.asm", source: arithmetic },
+  { id: "ix-halves", label: "IX and IY halves", filename: "ix-halves.asm", source: ixHalves },
   { id: "table", label: "Table", filename: "table.asm", source: table },
 ];
 

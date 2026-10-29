@@ -136,6 +136,55 @@ describe("planMotion", () => {
     });
   });
 
+  it("moves an IX or IY half the way a byte of BC moves", () => {
+    expect(planMotion(facts({ mnemonic: "LD IXH,A", a: 0x12, ix: 0x1200 }))).toEqual({
+      type: "travel",
+      moves: [{
+        from: { type: "reg", name: "a" },
+        to: { type: "reg", name: "ixh" },
+        value: 0x12,
+        width: 8,
+        pop: false,
+      }],
+    });
+    expect(planMotion(facts({ mnemonic: "LD A,IXL", a: 0x34, ix: 0x1234 }))).toMatchObject({
+      type: "travel",
+      moves: [{ from: { type: "reg", name: "ixl" }, to: { type: "reg", name: "a" }, value: 0x34, width: 8 }],
+    });
+
+    const seen = trace(exampleById("ix-halves")?.source ?? "");
+    expect(seen.find((item) => item.mnemonic === "LD IXH,A")?.plan).toMatchObject({
+      type: "travel",
+      moves: [{ from: { type: "reg", name: "a" }, to: { type: "reg", name: "ixh" }, value: 0x12, width: 8 }],
+    });
+    expect(seen.find((item) => item.mnemonic === "LD A,IXL")?.plan).toMatchObject({
+      type: "travel",
+      moves: [{ from: { type: "reg", name: "ixl" }, to: { type: "reg", name: "a" }, width: 8 }],
+    });
+    expect(seen.find((item) => item.mnemonic === "LD IYH,A")?.plan).toMatchObject({
+      type: "travel",
+      moves: [{ to: { type: "reg", name: "iyh" }, width: 8 }],
+    });
+    expect(counterNamed(seen, "INC IXL")).toMatchObject({
+      dir: "inc", width: 8, before: 0x12, after: 0x13, anchor: { type: "reg", name: "ixl" },
+    });
+    expect(counterNamed(seen, "DEC IXH")).toMatchObject({
+      dir: "dec", width: 8, before: 0x12, after: 0x11, anchor: { type: "reg", name: "ixh" },
+    });
+    expect(counterNamed(seen, "INC IYL")).toMatchObject({
+      dir: "inc", anchor: { type: "reg", name: "iyl" },
+    });
+    expect(counterNamed(seen, "DEC IYH")).toMatchObject({
+      dir: "dec", anchor: { type: "reg", name: "iyh" },
+    });
+    expect(aluNamed(seen, "ADD A,IXH")).toMatchObject({
+      op: "add", left: 0x01, right: 0x11, result: 0x12, other: { type: "reg", name: "ixh" }, dest: { type: "reg", name: "a" },
+    });
+    expect(aluNamed(seen, "ADD A,IYL")).toMatchObject({
+      op: "add", other: { type: "reg", name: "iyl" }, dest: { type: "reg", name: "a" },
+    });
+  });
+
   it("carries a store to the memory cell and a load back", () => {
     expect(planMotion(facts({
       mnemonic: "LD (HL),A",

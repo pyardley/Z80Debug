@@ -887,6 +887,10 @@ export class MotionStage {
       extra.push("de");
     } else if (plan.anchor.name === "h" || plan.anchor.name === "l") {
       extra.push("hl");
+    } else if (plan.anchor.name === "ixh" || plan.anchor.name === "ixl") {
+      extra.push("ix");
+    } else if (plan.anchor.name === "iyh" || plan.anchor.name === "iyl") {
+      extra.push("iy");
     }
     for (const name of extra) {
       this.dim({ type: "reg", name }, banks);

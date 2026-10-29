@@ -22,19 +22,19 @@ import { mount } from "./ui";
 const first = { source: FIRST_SOURCE_PX, center: FIRST_CENTER_PX, memory: FIRST_MEMORY_PX };
 
 describe("pane widths", () => {
-  it("starts with a short source, a comfortable center, and room for 16 hex bytes", () => {
-    expect(first).toEqual({ source: 340, center: 480, memory: 520 });
+  it("starts at the opening column widths", () => {
+    expect(first).toEqual({ source: 537, center: 698, memory: 570 });
   });
 
   it("gives leftover width to the center and keeps the source and memory", () => {
-    expect(fitPanes(1600, first)).toEqual({ source: 340, center: 740, memory: 520 });
+    expect(fitPanes(1600, first)).toEqual({ source: 537, center: 493, memory: 570 });
   });
 
   it("shrinks memory before the source when the center would be cramped", () => {
-    const fitted = fitPanes(340 + 520 + 400, first);
+    const fitted = fitPanes(FIRST_SOURCE_PX + FIRST_MEMORY_PX + 400, first);
     expect(fitted.center).toBe(MIN_CENTER_PX);
     expect(fitted.source).toBe(FIRST_SOURCE_PX);
-    expect(fitted.memory).toBe(400 + 520 - MIN_CENTER_PX);
+    expect(fitted.memory).toBe(FIRST_MEMORY_PX + 400 - MIN_CENTER_PX);
     expect(fitted.memory).toBeGreaterThanOrEqual(MIN_MEMORY_PX);
   });
 
@@ -129,7 +129,7 @@ describe("pane splits on the page", () => {
   });
 
   it("puts a separator between source and registers, and before memory", () => {
-    window.happyDOM.setInnerWidth(1440);
+    window.happyDOM.setInnerWidth(1920);
     const root = document.createElement("div");
     document.body.append(root);
     mount(root);
@@ -140,7 +140,7 @@ describe("pane splits on the page", () => {
     expect(source?.parentElement).toBe(root.querySelector(".workspace"));
     expect(memory?.parentElement).toBe(root.querySelector(".bench"));
     expect(root.querySelector(".bench > .memory-pane")).not.toBeNull();
-    expect(root.querySelector(".editor-pane")?.getAttribute("style")).toContain("340px");
-    expect(root.querySelector(".memory-pane")?.getAttribute("style")).toContain("520px");
+    expect(root.querySelector(".editor-pane")?.getAttribute("style")).toContain(`${FIRST_SOURCE_PX}px`);
+    expect(root.querySelector(".memory-pane")?.getAttribute("style")).toContain(`${FIRST_MEMORY_PX}px`);
   });
 });

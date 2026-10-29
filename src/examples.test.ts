@@ -178,6 +178,29 @@ describe("example programs", () => {
     expect(seen.has(next)).toBe(false);
     expect(seen.has(table)).toBe(false);
   });
+
+  it("loads, increments, and adds the undocumented IX and IY halves", () => {
+    const source = sourceOf("ix-halves");
+    expect(source).toMatch(/LD\s+IXH\s*,\s*A/i);
+    expect(source).toMatch(/LD\s+A\s*,\s*IXL/i);
+    expect(source).toMatch(/INC\s+IXL/i);
+    expect(source).toMatch(/DEC\s+IXH/i);
+    expect(source).toMatch(/ADD\s+A\s*,\s*IXH/i);
+    expect(source).toMatch(/LD\s+IYH\s*,\s*A/i);
+    expect(source).toMatch(/LD\s+A\s*,\s*IYL/i);
+    expect(source).toMatch(/INC\s+IYL/i);
+    expect(source).toMatch(/DEC\s+IYH/i);
+    expect(source).toMatch(/ADD\s+A\s*,\s*IYL/i);
+    const code = source.split("\n").filter((line) => !line.trim().startsWith(";")).join("\n");
+    expect(code).not.toMatch(/\(IX/i);
+    expect(code).not.toMatch(/\(IY/i);
+
+    const machine = runUntilHalt("ix-halves");
+    expect(machine.halted).toBe(true);
+    expect(machine.cpu.regs.ix & 0xffff).toBe(0x1113);
+    expect(machine.cpu.regs.iy & 0xffff).toBe(0x3335);
+    expect((machine.cpu.regs.af >> 8) & 0xff).toBe(0x36);
+  });
 });
 
 function sourceOf(id: string): string {
