@@ -1,14 +1,15 @@
 // Shared column widths for the plain page and the toy page.
-// The center pane takes leftover space. Source and memory stay at the widths Paul chose.
+// The center pane takes leftover space. Source and memory stay at these starting widths.
+// A saved layout replaces them.
 
 export const PANE_STORAGE_KEY = "z80debug.paneWidths";
 
-/** Wide enough for a typical instruction, including the line-number gutter. */
-export const FIRST_SOURCE_PX = 340;
-/** Floor used when the window is too narrow to measure. The center otherwise takes the leftover. */
-export const FIRST_CENTER_PX = 480;
-/** Wide enough for an address, 16 hex bytes, and 16 ASCII characters on one line. */
-export const FIRST_MEMORY_PX = 520;
+/** Opening source width. A saved layout replaces it. */
+export const FIRST_SOURCE_PX = 537;
+/** Opening center width. A measured window gives the leftover to the center instead. */
+export const FIRST_CENTER_PX = 698;
+/** Opening memory width. A saved layout replaces it. */
+export const FIRST_MEMORY_PX = 570;
 
 export const MIN_SOURCE_PX = 240;
 export const MIN_CENTER_PX = 420;

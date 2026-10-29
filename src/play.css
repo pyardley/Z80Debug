@@ -234,7 +234,7 @@ h3 {
   min-width: 0;
 }
 
-.editor-pane { flex: 0 0 auto; width: 340px; }
+.editor-pane { flex: 0 0 auto; width: 537px; }
 .cpu-pane { flex: 1 1 auto; min-width: 420px; }
 
 .split {
@@ -680,7 +680,7 @@ textarea {
   flex: 0 0 auto;
   flex-direction: column;
   gap: 0.7rem;
-  width: 520px;
+  width: 570px;
   margin: 0;
   background: transparent;
   border: 0;

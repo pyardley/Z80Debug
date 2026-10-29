@@ -1000,7 +1000,14 @@ function operandBytes(
   const banks = machine.banks();
   const exxBank = banks.main.exxActive ? banks.main : banks.alternate;
   const afBank = banks.main.afActive ? banks.main : banks.alternate;
-  const afterRegs = { af: afBank.af, bc: exxBank.bc, de: exxBank.de, hl: exxBank.hl };
+  const afterRegs = {
+    af: afBank.af,
+    bc: exxBank.bc,
+    de: exxBank.de,
+    hl: exxBank.hl,
+    ix: machine.cpu.regs.ix,
+    iy: machine.cpu.regs.iy,
+  };
   return {
     before: registerByte(anchor.name, base),
     after: registerByte(anchor.name, afterRegs),
@@ -1009,7 +1016,7 @@ function operandBytes(
 
 function registerByte(
   name: RegName,
-  regs: { af: number; bc: number; de: number; hl: number },
+  regs: { af: number; bc: number; de: number; hl: number; ix?: number; iy?: number },
 ): number {
   switch (name) {
     case "a":
@@ -1026,6 +1033,14 @@ function registerByte(
       return (regs.hl >> 8) & 0xff;
     case "l":
       return regs.hl & 0xff;
+    case "ixh":
+      return ((regs.ix ?? 0) >> 8) & 0xff;
+    case "ixl":
+      return (regs.ix ?? 0) & 0xff;
+    case "iyh":
+      return ((regs.iy ?? 0) >> 8) & 0xff;
+    case "iyl":
+      return (regs.iy ?? 0) & 0xff;
     default:
       return 0;
   }
@@ -1033,6 +1048,23 @@ function registerByte(
 
 const BYTE_FIELDS: readonly (RegName | "mem")[] = ["b", "c", "d", "e", "h", "l", "mem", "a"];
 const PAIR_FIELDS: readonly RegName[] = ["bc", "de", "hl", "sp"];
+
+/** H and L under a DD or FD prefix are the undocumented halves, not (IX+d). */
+function byteField(field: number, index: "ix" | "iy" | undefined): RegName | "mem" | undefined {
+  if (index === "ix" && field === 4) {
+    return "ixh";
+  }
+  if (index === "ix" && field === 5) {
+    return "ixl";
+  }
+  if (index === "iy" && field === 4) {
+    return "iyh";
+  }
+  if (index === "iy" && field === 5) {
+    return "iyl";
+  }
+  return BYTE_FIELDS[field];
+}
 
 /** Eight bits, slot 0 at the left (bit 7). The result row is the operation applied to each column. */
 export function logicRows(op: LogicOp, left: number, right: number): { left: Array<0 | 1>; right: Array<0 | 1>; result: Array<0 | 1> } {
@@ -1221,15 +1253,12 @@ function planArith(base: MotionBase, machine: Machine): ArithMotion | undefined 
     other = { type: "source" };
   } else {
     const field = decoded.op & 7;
-    if (decoded.index !== undefined && (field === 4 || field === 5)) {
-      return undefined;
-    }
     if (field === 6) {
       const address = memoryAddress(decoded, base);
       right = operandBytes({ type: "mem", address }, base, machine).before;
       other = { type: "mem", address };
     } else {
-      const name = BYTE_FIELDS[field];
+      const name = byteField(field, decoded.index);
       if (name === undefined || name === "mem") {
         return undefined;
       }
@@ -1427,9 +1456,6 @@ function planLogic(base: MotionBase, machine: Machine): LogicMotion | undefined 
     return { type: "logic", op, left, right: decoded.imm & 0xff, result, other: { type: "source" }, dest: { type: "reg", name: "a" } };
   }
   const field = decoded.op & 7;
-  if (decoded.index !== undefined && (field === 4 || field === 5)) {
-    return undefined;
-  }
   if (field === 6) {
     const address = memoryAddress(decoded, base);
     const bytes = operandBytes({ type: "mem", address }, base, machine);
@@ -1443,7 +1469,7 @@ function planLogic(base: MotionBase, machine: Machine): LogicMotion | undefined 
       dest: { type: "reg", name: "a" },
     };
   }
-  const name = BYTE_FIELDS[field];
+  const name = byteField(field, decoded.index);
   if (name === undefined || name === "mem") {
     return undefined;
   }
@@ -1474,15 +1500,12 @@ function planCounter(base: MotionBase, machine: Machine): CounterMotion | undefi
   const dir: CounterDir = inc8 || inc16 ? "inc" : "dec";
   if (inc8 || dec8) {
     const field = (op >> 3) & 7;
-    if (decoded.index !== undefined && (field === 4 || field === 5)) {
-      return undefined;
-    }
     if (field === 6) {
       const address = memoryAddress(decoded, base);
       const bytes = operandBytes({ type: "mem", address }, base, machine);
       return { type: "counter", dir, width: 8, anchor: { type: "mem", address }, before: bytes.before, after: bytes.after };
     }
-    const name = BYTE_FIELDS[field];
+    const name = byteField(field, decoded.index);
     if (name === undefined || name === "mem") {
       return undefined;
     }
@@ -1495,7 +1518,14 @@ function planCounter(base: MotionBase, machine: Machine): CounterMotion | undefi
       width: 8,
       anchor: { type: "reg", name },
       before: registerByte(name, base),
-      after: registerByte(name, { af: afBank.af, bc: exxBank.bc, de: exxBank.de, hl: exxBank.hl }),
+      after: registerByte(name, {
+        af: afBank.af,
+        bc: exxBank.bc,
+        de: exxBank.de,
+        hl: exxBank.hl,
+        ix: machine.cpu.regs.ix,
+        iy: machine.cpu.regs.iy,
+      }),
     };
   }
   const pair = (op >> 4) & 3;
