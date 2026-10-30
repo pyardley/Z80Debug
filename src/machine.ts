@@ -57,6 +57,7 @@ export interface MachineSnapshot {
   memory: Uint8Array;
   steps: number;
   lastInstruction: string;
+  lastInstructionBytes: number[];
   writes: MemoryWrite[];
   lastWriteAddress: number | undefined;
   lastAccessAddress: number | undefined;
@@ -80,6 +81,7 @@ export class Machine {
   steps = 0;
   errors: AssembleError[] = [];
   lastInstruction = "";
+  lastInstructionBytes: number[] = [];
   nextInstruction = "NOP";
   writes: MemoryWrite[] = [];
   lastWriteAddress: number | undefined;
@@ -155,6 +157,7 @@ export class Machine {
     this.halted = false;
     this.steps = 0;
     this.lastInstruction = "";
+    this.lastInstructionBytes = [];
     this.writes = [];
     this.lastWriteAddress = undefined;
     this.lastAccessAddress = undefined;
@@ -186,6 +189,7 @@ export class Machine {
     const opcode = this.memory[pc];
     this.history.push(this.snapshot());
     this.lastInstruction = viewed.text;
+    this.lastInstructionBytes = viewed.bytes.slice();
     this.recorded = [];
     this.accesses = [];
     this.recording = true;
@@ -392,6 +396,7 @@ export class Machine {
       memory: this.memory.slice(),
       steps: this.steps,
       lastInstruction: this.lastInstruction,
+      lastInstructionBytes: this.lastInstructionBytes.slice(),
       writes: this.writes.map((write) => ({ ...write })),
       lastWriteAddress: this.lastWriteAddress,
       lastAccessAddress: this.lastAccessAddress,
@@ -432,6 +437,7 @@ export class Machine {
     this.memory.set(previous.memory);
     this.steps = previous.steps;
     this.lastInstruction = previous.lastInstruction;
+    this.lastInstructionBytes = previous.lastInstructionBytes.slice();
     this.writes = previous.writes.map((write) => ({ ...write }));
     this.lastWriteAddress = previous.lastWriteAddress;
     this.lastAccessAddress = previous.lastAccessAddress;

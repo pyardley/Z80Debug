@@ -17,6 +17,18 @@ export const FLAG_HELP: Record<string, string> = {
   c: "C, Carry. Set when an unsigned add or subtract does not fit, or when a shift or rotate pushes a bit out.",
 };
 
+/** Short label on the strip, and the same kind of explanation a flag bubble uses. */
+export const REGISTER_HELP = {
+  i: {
+    label: "I page",
+    help: "I, Interrupt page. The high byte of the address used in interrupt mode 2. The device supplies the low byte.",
+  },
+  r: {
+    label: "R refresh",
+    help: "R, Memory refresh. Increments as instructions run so dynamic memory can be refreshed.",
+  },
+} as const;
+
 /** Letter and 0/1 share one bubble. */
 export function appendFlagParts(bit: HTMLElement, key: string, on: boolean): void {
   const flag = FLAG_BITS.find((item) => item.key === key);

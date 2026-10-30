@@ -224,7 +224,7 @@ describe("tabletop debugger", () => {
     click(root, "#step");
     click(root, "#step");
 
-    expect(text(root, "#last-instruction")).toBe("RLA");
+    expect(text(root, "#last-instruction")).toBe("RLA    cycles 4");
     expect(text(root, "[data-key='main.a']")).toBe("02");
     expect(root.querySelector("[data-key='main.a']")?.getAttribute("style")).toContain("opacity");
     const bits = Array.from(document.querySelectorAll(".shift-bit"));
@@ -317,6 +317,30 @@ describe("tabletop debugger", () => {
     );
   });
 
+  it("spaces IX from IY, explains I and R, and shows a cycle count", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const ix = root.querySelector("[data-pair='ix']");
+    const iy = root.querySelector("[data-pair='iy']");
+    expect(ix?.querySelector("[data-key='ixh']")).not.toBeNull();
+    expect(ix?.querySelector("[data-key='ixl']")).not.toBeNull();
+    expect(ix?.querySelector("[data-key='iyh']")).toBeNull();
+    expect(iy?.querySelector("[data-key='iyh']")).not.toBeNull();
+    expect(iy?.querySelector("[data-key='iyl']")).not.toBeNull();
+
+    expect(root.querySelector("[data-key='i']")?.closest(".reg")?.querySelector(".reg-name")?.textContent).toBe("I page");
+    expect(root.querySelector("[data-key='i']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toContain("Interrupt page");
+    expect(root.querySelector("[data-key='r']")?.closest(".reg")?.querySelector(".reg-name")?.textContent).toBe("R refresh");
+    expect(root.querySelector("[data-key='r']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toContain("Increments as instructions run");
+
+    chooseExample(root, "sample");
+    expect(root.querySelector("#next-instruction")?.textContent).toContain("cycles 10");
+    click(root, "#step");
+    expect(root.querySelector("#last-instruction")?.textContent).toContain("cycles 10");
+    expect(root.querySelector("#next-instruction")?.textContent).toContain("cycles 14");
+  });
+
   it("pops SET into bits and returns A in the selected format", () => {
     const root = document.createElement("div");
     document.body.append(root);
@@ -324,7 +348,7 @@ describe("tabletop debugger", () => {
     chooseExample(root, "bits");
     click(root, "#step");
     click(root, "#step");
-    expect(text(root, "#last-instruction")).toBe("SET 0,A");
+    expect(text(root, "#last-instruction")).toBe("SET 0,A    cycles 8");
     expect(text(root, "[data-key='main.a']")).toBe("01");
     expect(root.querySelector("[data-key='main.a']")?.getAttribute("style")).toContain("opacity");
     const chosen = document.querySelector(".shift-bit.chosen");
@@ -371,7 +395,7 @@ describe("tabletop debugger", () => {
     click(root, "#step");
     click(root, "#step");
     click(root, "#step");
-    expect(text(root, "#last-instruction")).toBe("AND A,L");
+    expect(text(root, "#last-instruction")).toBe("AND A,L    cycles 4");
     expect(text(root, "[data-key='main.a']")).toBe("00");
     expect(root.querySelector("[data-key='main.a']")?.getAttribute("style")).toContain("opacity");
     expect(root.querySelector("[data-key='main.l']")?.getAttribute("style")).toContain("opacity");
