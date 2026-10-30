@@ -37,6 +37,7 @@ import {
   swapGroup,
 } from "./motion";
 import { MotionStage, type BadgeLift } from "./play-stage";
+import { bindHelpBubbles, dismissHelpBubbles } from "./bubbles";
 import { hexColumns, mountPanes } from "./panes";
 import { paintStackPane } from "./stack";
 import { isWordKey, openValueEditor } from "./value-edit";
@@ -46,6 +47,7 @@ const UNTITLED = "Untitled";
 
 let detachChrome: (() => void) | undefined;
 let detachPanes: (() => void) | undefined;
+let detachBubbles: (() => void) | undefined;
 let finishMotion: (() => void) | undefined;
 
 function readDisplayFormat(): DisplayFormat {
@@ -503,6 +505,8 @@ export function mount(root: HTMLElement): void {
   detachPanes = mountPanes(root, () => {
     refreshDumpColumns();
   }).detach;
+  detachBubbles?.();
+  detachBubbles = bindHelpBubbles(root);
   render();
 
   function stopMotion(): void {
@@ -615,6 +619,7 @@ export function mount(root: HTMLElement): void {
   }
 
   function render(): void {
+    dismissHelpBubbles();
     root.classList.remove("format-hex", "format-decimal", "format-binary", "format-ascii");
     root.classList.add(`format-${format}`);
     paintMotion();
