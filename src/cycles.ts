@@ -67,13 +67,13 @@ export function baseCycles(bytes: readonly number[]): number | undefined {
   return bestCycles;
 }
 
-/** Text to append to Next or Last. Empty when the form has no single count. */
+/** Label for the right edge of Next or Last. Empty when the form has no single count. */
 export function cyclesSuffix(bytes: readonly number[]): string {
   const cycles = baseCycles(bytes);
   if (cycles === undefined) {
     return "";
   }
-  return `    cycles ${cycles}`;
+  return `cycles ${cycles}`;
 }
 
 function matches(pattern: CyclePattern, bytes: readonly number[]): boolean {

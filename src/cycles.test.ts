@@ -12,7 +12,7 @@ describe("documented cycle counts", () => {
     expect(baseCycles([0xc9])).toBe(10);
     expect(baseCycles([0x76])).toBe(4);
     expect(baseCycles([0xdd, 0x67])).toBe(8);
-    expect(cyclesSuffix([0x31, 0xff, 0x00])).toBe("    cycles 10");
+    expect(cyclesSuffix([0x31, 0xff, 0x00])).toBe("cycles 10");
   });
 
   it("omits a form that has two documented counts", () => {

@@ -431,7 +431,15 @@ textarea {
   font-weight: 650;
 }
 
-.instruction p { margin: 0.1rem 0; }
+.instruction p {
+  display: flex;
+  align-items: baseline;
+  margin: 0.1rem 0;
+}
+.insn-cycles {
+  margin-left: auto;
+  white-space: nowrap;
+}
 .insn-label {
   display: inline-block;
   width: 3.2rem;

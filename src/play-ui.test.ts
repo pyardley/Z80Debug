@@ -224,7 +224,8 @@ describe("tabletop debugger", () => {
     click(root, "#step");
     click(root, "#step");
 
-    expect(text(root, "#last-instruction")).toBe("RLA    cycles 4");
+    expect(text(root, "#last-instruction")).toBe("RLA");
+    expect(root.querySelector("#last-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 4");
     expect(text(root, "[data-key='main.a']")).toBe("02");
     expect(root.querySelector("[data-key='main.a']")?.getAttribute("style")).toContain("opacity");
     const bits = Array.from(document.querySelectorAll(".shift-bit"));
@@ -335,10 +336,11 @@ describe("tabletop debugger", () => {
     expect(root.querySelector("[data-key='r']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toContain("Increments as instructions run");
 
     chooseExample(root, "sample");
-    expect(root.querySelector("#next-instruction")?.textContent).toContain("cycles 10");
+    expect(root.querySelector("#next-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 10");
     click(root, "#step");
-    expect(root.querySelector("#last-instruction")?.textContent).toContain("cycles 10");
-    expect(root.querySelector("#next-instruction")?.textContent).toContain("cycles 14");
+    expect(root.querySelector("#last-instruction")?.textContent).toContain("LD SP,0XFF00");
+    expect(root.querySelector("#last-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 10");
+    expect(root.querySelector("#next-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 14");
   });
 
   it("pops SET into bits and returns A in the selected format", () => {
@@ -348,7 +350,8 @@ describe("tabletop debugger", () => {
     chooseExample(root, "bits");
     click(root, "#step");
     click(root, "#step");
-    expect(text(root, "#last-instruction")).toBe("SET 0,A    cycles 8");
+    expect(text(root, "#last-instruction")).toBe("SET 0,A");
+    expect(root.querySelector("#last-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 8");
     expect(text(root, "[data-key='main.a']")).toBe("01");
     expect(root.querySelector("[data-key='main.a']")?.getAttribute("style")).toContain("opacity");
     const chosen = document.querySelector(".shift-bit.chosen");
@@ -395,7 +398,8 @@ describe("tabletop debugger", () => {
     click(root, "#step");
     click(root, "#step");
     click(root, "#step");
-    expect(text(root, "#last-instruction")).toBe("AND A,L    cycles 4");
+    expect(text(root, "#last-instruction")).toBe("AND A,L");
+    expect(root.querySelector("#last-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 4");
     expect(text(root, "[data-key='main.a']")).toBe("00");
     expect(root.querySelector("[data-key='main.a']")?.getAttribute("style")).toContain("opacity");
     expect(root.querySelector("[data-key='main.l']")?.getAttribute("style")).toContain("opacity");

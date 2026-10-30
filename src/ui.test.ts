@@ -437,12 +437,15 @@ describe("file menu", () => {
     expect(refresh?.querySelector(".reg-bubble")?.textContent).toContain("Increments as instructions run");
 
     chooseExample(root, "sample");
-    expect(root.querySelector("#next-instruction")?.textContent).toContain("cycles 10");
+    expect(root.querySelector("#next-instruction")?.textContent).toContain("LD SP,0XFF00");
+    expect(root.querySelector("#next-instruction")?.textContent).not.toContain("cycles");
+    expect(root.querySelector("#next-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 10");
     click(root, "#step");
     expect(root.querySelector("#last-instruction")?.textContent).toContain("LD SP,0XFF00");
-    expect(root.querySelector("#last-instruction")?.textContent).toContain("cycles 10");
+    expect(root.querySelector("#last-instruction")?.textContent).not.toContain("cycles");
+    expect(root.querySelector("#last-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 10");
     expect(root.querySelector("#next-instruction")?.textContent).toContain("LD IX,0X4000");
-    expect(root.querySelector("#next-instruction")?.textContent).toContain("cycles 14");
+    expect(root.querySelector("#next-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 14");
 
     const editor = editorValue(root);
     editor.value = "        ORG 0100H\n        DJNZ $\n        HALT\n";

@@ -502,8 +502,16 @@ textarea {
 }
 
 .instruction { min-width: 0; }
-.instruction p { margin: 0.12rem 0; }
+.instruction p {
+  display: flex;
+  align-items: baseline;
+  margin: 0.12rem 0;
+}
 .instruction .num { white-space: pre-wrap; }
+.instruction .insn-cycles {
+  margin-left: auto;
+  white-space: nowrap;
+}
 .insn-label { display: inline-block; width: 3.2rem; }
 
 .system-regs, .reg-row, .flags {

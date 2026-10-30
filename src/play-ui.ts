@@ -948,9 +948,9 @@ export function mount(root: HTMLElement): void {
     const box = required<HTMLElement>(root, "#instruction");
     box.replaceChildren();
     const current = disassembleAt(machine.memory, machine.cpu.regs.pc);
-    box.append(line("Next", `${current.text}    bytes ${formatBytes(current.bytes)}${cyclesSuffix(current.bytes)}`));
+    box.append(line("Next", `${current.text}    bytes ${formatBytes(current.bytes)}`, cyclesSuffix(current.bytes)));
     if (machine.lastInstruction) {
-      box.append(line("Last", `${machine.lastInstruction}${cyclesSuffix(machine.lastInstructionBytes)}`));
+      box.append(line("Last", machine.lastInstruction, cyclesSuffix(machine.lastInstructionBytes)));
     }
   }
 
@@ -1400,7 +1400,7 @@ function regCell(label: string, text: string, key: string, wide: boolean, help?:
   return cell;
 }
 
-function line(label: string, text: string): HTMLElement {
+function line(label: string, text: string, cycles = ""): HTMLElement {
   const row = document.createElement("p");
   const name = document.createElement("span");
   name.className = "insn-label";
@@ -1410,6 +1410,12 @@ function line(label: string, text: string): HTMLElement {
   value.id = label === "Last" ? "last-instruction" : "next-instruction";
   value.textContent = text;
   row.append(name, value);
+  if (cycles !== "") {
+    const count = document.createElement("span");
+    count.className = "num insn-cycles";
+    count.textContent = cycles;
+    row.append(count);
+  }
   return row;
 }
 
