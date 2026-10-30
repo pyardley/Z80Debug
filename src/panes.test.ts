@@ -23,11 +23,11 @@ const first = { source: FIRST_SOURCE_PX, center: FIRST_CENTER_PX, memory: FIRST_
 
 describe("pane widths", () => {
   it("starts at the opening column widths", () => {
-    expect(first).toEqual({ source: 537, center: 698, memory: 570 });
+    expect(first).toEqual({ source: 471, center: 795, memory: 539 });
   });
 
   it("gives leftover width to the center and keeps the source and memory", () => {
-    expect(fitPanes(1600, first)).toEqual({ source: 537, center: 493, memory: 570 });
+    expect(fitPanes(1600, first)).toEqual({ source: 471, center: 590, memory: 539 });
   });
 
   it("shrinks memory before the source when the center would be cramped", () => {

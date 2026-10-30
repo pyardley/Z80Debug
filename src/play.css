@@ -234,7 +234,7 @@ h3 {
   min-width: 0;
 }
 
-.editor-pane { flex: 0 0 auto; width: 537px; }
+.editor-pane { flex: 0 0 auto; width: 471px; }
 .cpu-pane { flex: 1 1 auto; min-width: 420px; }
 
 .split {
@@ -531,6 +531,14 @@ textarea {
   margin-left: 1.35rem;
 }
 
+.system-regs [data-pair="ix"] {
+  margin-left: 1.75rem;
+}
+
+.system-regs [data-pair="iy"] {
+  margin-right: 1.75rem;
+}
+
 .system-regs { margin-bottom: 0.45rem; }
 
 .reg { display: inline-flex; gap: 0.28rem; align-items: center; }
@@ -703,7 +711,7 @@ textarea {
   flex: 0 0 auto;
   flex-direction: column;
   gap: 0.7rem;
-  width: 570px;
+  width: 539px;
   margin: 0;
   background: transparent;
   border: 0;

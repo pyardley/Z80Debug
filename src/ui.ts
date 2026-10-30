@@ -27,6 +27,7 @@ import {
 } from "./files";
 import { appendFlagParts, FLAG_BITS, REGISTER_HELP } from "./flags";
 import { Machine, type RegisterBank } from "./machine";
+import { bindHelpBubbles, dismissHelpBubbles } from "./bubbles";
 import { hexColumns, mountPanes } from "./panes";
 import { paintStackPane } from "./stack";
 import { isWordKey, openValueEditor } from "./value-edit";
@@ -37,6 +38,7 @@ const UNTITLED = "Untitled";
 
 let detachChrome: (() => void) | undefined;
 let detachPanes: (() => void) | undefined;
+let detachBubbles: (() => void) | undefined;
 
 function readDisplayFormat(): DisplayFormat {
   try {
@@ -402,9 +404,12 @@ export function mount(root: HTMLElement): void {
   detachPanes = mountPanes(root, () => {
     refreshDumpColumns();
   }).detach;
+  detachBubbles?.();
+  detachBubbles = bindHelpBubbles(root);
   render();
 
   function render(): void {
+    dismissHelpBubbles();
     root.classList.toggle("format-ascii", format === "ascii");
     paintFormat();
     paintStatus();

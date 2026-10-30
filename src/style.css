@@ -231,7 +231,7 @@ h3 { font-size: 0.95rem; }
   min-width: 0;
 }
 
-.editor-pane { flex: 0 0 auto; width: 537px; }
+.editor-pane { flex: 0 0 auto; width: 471px; }
 .cpu-pane { flex: 1 1 auto; min-width: 420px; }
 
 .split {
@@ -465,6 +465,14 @@ textarea {
   margin-left: 1.35rem;
 }
 
+.system-regs [data-pair="ix"] {
+  margin-left: 1.75rem;
+}
+
+.system-regs [data-pair="iy"] {
+  margin-right: 1.75rem;
+}
+
 .reg { display: inline-flex; gap: 0.3rem; align-items: baseline; }
 .reg-name { color: #5e5a50; min-width: 1.6rem; }
 
@@ -609,7 +617,7 @@ textarea {
   flex: 0 0 auto;
   flex-direction: column;
   gap: 0.6rem;
-  width: 570px;
+  width: 539px;
   min-width: 0;
 }
 

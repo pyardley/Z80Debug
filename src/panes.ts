@@ -5,11 +5,11 @@
 export const PANE_STORAGE_KEY = "z80debug.paneWidths";
 
 /** Opening source width. A saved layout replaces it. */
-export const FIRST_SOURCE_PX = 537;
+export const FIRST_SOURCE_PX = 471;
 /** Opening center width. A measured window gives the leftover to the center instead. */
-export const FIRST_CENTER_PX = 698;
+export const FIRST_CENTER_PX = 795;
 /** Opening memory width. A saved layout replaces it. */
-export const FIRST_MEMORY_PX = 570;
+export const FIRST_MEMORY_PX = 539;
 
 export const MIN_SOURCE_PX = 240;
 export const MIN_CENTER_PX = 420;
