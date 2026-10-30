@@ -414,6 +414,47 @@ describe("file menu", () => {
     expect(root.querySelectorAll(".flag-bubble")).toHaveLength(12);
   });
 
+  it("spaces IX from IY, explains I and R, and shows a single cycle count", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const ix = root.querySelector("[data-pair='ix']");
+    const iy = root.querySelector("[data-pair='iy']");
+    expect(ix?.querySelector("[data-key='ixh']")).not.toBeNull();
+    expect(ix?.querySelector("[data-key='ixl']")).not.toBeNull();
+    expect(ix?.querySelector("[data-key='iyh']")).toBeNull();
+    expect(iy?.querySelector("[data-key='iyh']")).not.toBeNull();
+    expect(iy?.querySelector("[data-key='iyl']")).not.toBeNull();
+    expect(ix?.compareDocumentPosition(iy ?? ix) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const interrupt = root.querySelector("[data-key='i']")?.closest(".reg");
+    const refresh = root.querySelector("[data-key='r']")?.closest(".reg");
+    expect(interrupt?.querySelector(".reg-name")?.textContent).toBe("I page");
+    expect(interrupt?.querySelector(".reg-bubble")?.textContent).toBe(
+      "I, Interrupt page. The high byte of the address used in interrupt mode 2. The device supplies the low byte.",
+    );
+    expect(refresh?.querySelector(".reg-name")?.textContent).toBe("R refresh");
+    expect(refresh?.querySelector(".reg-bubble")?.textContent).toContain("Increments as instructions run");
+
+    chooseExample(root, "sample");
+    expect(root.querySelector("#next-instruction")?.textContent).toContain("LD SP,0XFF00");
+    expect(root.querySelector("#next-instruction")?.textContent).not.toContain("cycles");
+    expect(root.querySelector("#next-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 10");
+    click(root, "#step");
+    expect(root.querySelector("#last-instruction")?.textContent).toContain("LD SP,0XFF00");
+    expect(root.querySelector("#last-instruction")?.textContent).not.toContain("cycles");
+    expect(root.querySelector("#last-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 10");
+    expect(root.querySelector("#next-instruction")?.textContent).toContain("LD IX,0X4000");
+    expect(root.querySelector("#next-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 14");
+
+    const editor = editorValue(root);
+    editor.value = "        ORG 0100H\n        DJNZ $\n        HALT\n";
+    click(root, "#assemble");
+    const next = root.querySelector("#next-instruction")?.textContent ?? "";
+    expect(next).toContain("DJNZ");
+    expect(next).not.toContain("cycles");
+  });
+
   it("runs AND and INC without the toy animation", () => {
     const root = document.createElement("div");
     document.body.append(root);

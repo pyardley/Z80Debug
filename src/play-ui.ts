@@ -1,4 +1,5 @@
 import { hi, lo } from "z80-base";
+import { cyclesSuffix } from "./cycles";
 import { disassembleAt } from "./disasm";
 import { exampleById, EXAMPLES } from "./examples";
 import {
@@ -24,7 +25,7 @@ import {
   saveFormat,
   type DisplayFormat,
 } from "./format";
-import { appendFlagParts, FLAG_BITS } from "./flags";
+import { appendFlagParts, FLAG_BITS, REGISTER_HELP } from "./flags";
 import { Machine, type RegisterBank } from "./machine";
 import {
   captureMotionBase,
@@ -947,9 +948,9 @@ export function mount(root: HTMLElement): void {
     const box = required<HTMLElement>(root, "#instruction");
     box.replaceChildren();
     const current = disassembleAt(machine.memory, machine.cpu.regs.pc);
-    box.append(line("Next", `${current.text}    bytes ${formatBytes(current.bytes)}`));
+    box.append(line("Next", `${current.text}    bytes ${formatBytes(current.bytes)}`, cyclesSuffix(current.bytes)));
     if (machine.lastInstruction) {
-      box.append(line("Last", machine.lastInstruction));
+      box.append(line("Last", machine.lastInstruction, cyclesSuffix(machine.lastInstructionBytes)));
     }
   }
 
@@ -962,12 +963,16 @@ export function mount(root: HTMLElement): void {
     grid.append(
       regCell("PC", formatWord(regs.pc, format), "pc", true),
       regCell("SP", formatWord(regs.sp, format), "sp", true),
-      regCell("IXH", formatByte((regs.ix >> 8) & 0xff, format), "ixh", false),
-      regCell("IXL", formatByte(regs.ix & 0xff, format), "ixl", false),
-      regCell("IYH", formatByte((regs.iy >> 8) & 0xff, format), "iyh", false),
-      regCell("IYL", formatByte(regs.iy & 0xff, format), "iyl", false),
-      regCell("I", formatByte(regs.i, format), "i", false),
-      regCell("R", formatByte(machine.refreshRegister(), format), "r", false),
+      regPair("ix", [
+        regCell("IXH", formatByte((regs.ix >> 8) & 0xff, format), "ixh", false),
+        regCell("IXL", formatByte(regs.ix & 0xff, format), "ixl", false),
+      ]),
+      regPair("iy", [
+        regCell("IYH", formatByte((regs.iy >> 8) & 0xff, format), "iyh", false),
+        regCell("IYL", formatByte(regs.iy & 0xff, format), "iyl", false),
+      ]),
+      regCell(REGISTER_HELP.i.label, formatByte(regs.i, format), "i", false, REGISTER_HELP.i.help),
+      regCell(REGISTER_HELP.r.label, formatByte(machine.refreshRegister(), format), "r", false, REGISTER_HELP.r.help),
     );
     host.append(grid);
   }
@@ -1364,7 +1369,15 @@ function formatStatusLabel(format: DisplayFormat): string {
   }
 }
 
-function regCell(label: string, text: string, key: string, wide: boolean): HTMLElement {
+function regPair(pair: "ix" | "iy", cells: HTMLElement[]): HTMLElement {
+  const group = document.createElement("span");
+  group.className = "reg-pair";
+  group.dataset.pair = pair;
+  group.append(...cells);
+  return group;
+}
+
+function regCell(label: string, text: string, key: string, wide: boolean, help?: string): HTMLElement {
   const cell = document.createElement("span");
   cell.className = "reg";
   const name = document.createElement("span");
@@ -1376,10 +1389,18 @@ function regCell(label: string, text: string, key: string, wide: boolean): HTMLE
   value.dataset.key = key;
   value.title = "Click to type a new value";
   cell.append(name, value);
+  if (help !== undefined) {
+    cell.classList.add("reg-help");
+    const bubble = document.createElement("span");
+    bubble.className = "reg-bubble";
+    bubble.setAttribute("role", "tooltip");
+    bubble.textContent = help;
+    cell.append(bubble);
+  }
   return cell;
 }
 
-function line(label: string, text: string): HTMLElement {
+function line(label: string, text: string, cycles = ""): HTMLElement {
   const row = document.createElement("p");
   const name = document.createElement("span");
   name.className = "insn-label";
@@ -1389,6 +1410,12 @@ function line(label: string, text: string): HTMLElement {
   value.id = label === "Last" ? "last-instruction" : "next-instruction";
   value.textContent = text;
   row.append(name, value);
+  if (cycles !== "") {
+    const count = document.createElement("span");
+    count.className = "num insn-cycles";
+    count.textContent = cycles;
+    row.append(count);
+  }
   return row;
 }
 

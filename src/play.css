@@ -502,8 +502,16 @@ textarea {
 }
 
 .instruction { min-width: 0; }
-.instruction p { margin: 0.12rem 0; }
+.instruction p {
+  display: flex;
+  align-items: baseline;
+  margin: 0.12rem 0;
+}
 .instruction .num { white-space: pre-wrap; }
+.instruction .insn-cycles {
+  margin-left: auto;
+  white-space: nowrap;
+}
 .insn-label { display: inline-block; width: 3.2rem; }
 
 .system-regs, .reg-row, .flags {
@@ -511,6 +519,16 @@ textarea {
   flex-wrap: wrap;
   gap: 0.28rem 0.55rem;
   align-items: center;
+}
+
+.reg-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem 0.55rem;
+}
+
+.system-regs .reg-pair + .reg-pair {
+  margin-left: 1.35rem;
 }
 
 .system-regs { margin-bottom: 0.45rem; }
@@ -627,7 +645,10 @@ textarea {
 
 .flag-state { margin-left: 0.2rem; }
 
-.flag-bubble {
+.reg-help { position: relative; cursor: help; }
+
+.flag-bubble,
+.reg-bubble {
   display: none;
   position: absolute;
   z-index: 40;
@@ -652,7 +673,9 @@ textarea {
 }
 
 .flag:hover .flag-bubble,
-.flag:focus-within .flag-bubble {
+.flag:focus-within .flag-bubble,
+.reg-help:hover .reg-bubble,
+.reg-help:focus-within .reg-bubble {
   display: block;
 }
 

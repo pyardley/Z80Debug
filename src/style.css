@@ -431,7 +431,15 @@ textarea {
   font-weight: 650;
 }
 
-.instruction p { margin: 0.1rem 0; }
+.instruction p {
+  display: flex;
+  align-items: baseline;
+  margin: 0.1rem 0;
+}
+.insn-cycles {
+  margin-left: auto;
+  white-space: nowrap;
+}
 .insn-label {
   display: inline-block;
   width: 3.2rem;
@@ -445,6 +453,16 @@ textarea {
   gap: 0.25rem 0.7rem;
   align-items: baseline;
   margin-top: 0.25rem;
+}
+
+.reg-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem 0.7rem;
+}
+
+.system-regs .reg-pair + .reg-pair {
+  margin-left: 1.35rem;
 }
 
 .reg { display: inline-flex; gap: 0.3rem; align-items: baseline; }
@@ -534,7 +552,10 @@ textarea {
 
 .flag-state { margin-left: 0.2rem; }
 
-.flag-bubble {
+.reg-help { position: relative; cursor: help; }
+
+.flag-bubble,
+.reg-bubble {
   display: none;
   position: absolute;
   z-index: 40;
@@ -559,7 +580,9 @@ textarea {
 }
 
 .flag:hover .flag-bubble,
-.flag:focus-within .flag-bubble {
+.flag:focus-within .flag-bubble,
+.reg-help:hover .reg-bubble,
+.reg-help:focus-within .reg-bubble {
   display: block;
 }
 
