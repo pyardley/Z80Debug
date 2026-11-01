@@ -179,6 +179,43 @@ describe("example programs", () => {
     expect(seen.has(table)).toBe(false);
   });
 
+  it("tours loads, indexes, the stack, flags, and a short loop", () => {
+    const source = sourceOf("feature-tour");
+    expect(source).toMatch(/LD\s+A\s*,\s*41H\s*;\s*letter A/);
+    expect(source).toMatch(/LD\s+BC\s*,\s*1234H/);
+    expect(source).toMatch(/LD\s+\(IX\+03H\)\s*,\s*A/i);
+    expect(source).toMatch(/LD\s+A\s*,\s*\(IX\+03H\)/i);
+    expect(source).toMatch(/LD\s+IY\s*,\s*8000H/);
+    expect(source).toMatch(/\bPUSH\s+BC\b/);
+    expect(source).toMatch(/\bPOP\s+DE\b/);
+    expect(source).toMatch(/\bXOR\s+A\s*,\s*A\b/);
+    expect(source).toMatch(/\bADD\s+A\s*,\s*80H\b/);
+    expect(source).toMatch(/\bOR\s+01H\b/);
+    expect(source).toMatch(/\bSLA\s+A\b/);
+    expect(source).toMatch(/\bSET\s+0\s*,\s*A\b/);
+    expect(source).toMatch(/OUT\s+\(\s*00H\s*\)\s*,\s*A/i);
+    expect(source).toMatch(/\bDJNZ\b/);
+
+    const machine = runUntilHalt("feature-tour");
+    expect(machine.halted).toBe(true);
+    expect(machine.steps).toBeLessThan(30);
+    expect(machine.cpu.regs.sp & 0xffff).toBe(0xff00);
+    expect(machine.cpu.regs.de & 0xffff).toBe(0x1234);
+    expect(machine.cpu.regs.bc & 0xffff).toBe(0x0034);
+    expect(machine.cpu.regs.ix & 0xffff).toBe(0x4000);
+    expect(machine.cpu.regs.iy & 0xffff).toBe(0x8000);
+    expect(machine.memory[0x4003]).toBe(0x41);
+    expect((machine.cpu.regs.af >> 8) & 0xff).toBe(0x42);
+    expect((machine.cpu.regs.bc >> 8) & 0xff).toBe(0);
+    expect(machine.console.text()).toBe("B");
+    expect(machine.registerComment("main.a")).toBe("letter B");
+    expect(machine.registerComment("main.c")).toBe("pair BC");
+    expect(machine.registerComment("main.b")).toBeUndefined();
+    expect(machine.registerComment("ixh")).toBe("index IX");
+    expect(machine.registerComment("pc")).toBeUndefined();
+    expect(machine.registerComment("sp")).toBeUndefined();
+  });
+
   it("loads, increments, and adds the undocumented IX and IY halves", () => {
     const source = sourceOf("ix-halves");
     expect(source).toMatch(/LD\s+IXH\s*,\s*A/i);
