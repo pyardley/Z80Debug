@@ -341,6 +341,21 @@ describe("tabletop debugger", () => {
       "SP, Stack pointer. The address of the top word.",
     );
 
+    chooseExample(root, "comments");
+    for (let step = 0; step < 10; step += 1) {
+      click(root, "#step");
+    }
+    expect(root.querySelector("#last-instruction")?.textContent).toContain("LD A,0X99");
+    expect(root.querySelector("[data-key='main.a']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toBe("current page");
+    expect(root.querySelector("[data-key='main.b']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toBe("row");
+    expect(root.querySelector("[data-key='ixl']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toBe("pixel buffer");
+    expect(root.querySelector("[data-key='iyl']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toBe("name table");
+    expect(root.querySelector("[data-key='sp']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toBe("stack top");
+    expect(root.querySelector("[data-key='pc']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toBe(
+      "PC, Program counter. The address of the next instruction.",
+    );
+    expect(root.querySelector("[data-key='r']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toContain("Increments as instructions run");
+
     chooseExample(root, "sample");
     expect(root.querySelector("#next-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 10");
     click(root, "#step");
