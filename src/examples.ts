@@ -5,6 +5,7 @@ import ixHalves from "../examples/ix-halves.asm";
 import logic from "../examples/logic.asm";
 import consoleEcho from "../examples/console-echo.asm";
 import consoleExample from "../examples/console.asm";
+import featureTour from "../examples/feature-tour.asm";
 import exchange from "../examples/exchange.asm";
 import flags from "../examples/flags.asm";
 import memory from "../examples/memory.asm";
@@ -34,6 +35,7 @@ export const EXAMPLES: readonly ExampleProgram[] = [
   { id: "arithmetic", label: "Arithmetic", filename: "arithmetic.asm", source: arithmetic },
   { id: "ix-halves", label: "IX and IY halves", filename: "ix-halves.asm", source: ixHalves },
   { id: "comments", label: "Register comments", filename: "comments.asm", source: comments },
+  { id: "feature-tour", label: "Feature tour", filename: "feature-tour.asm", source: featureTour },
   { id: "table", label: "Table", filename: "table.asm", source: table },
 ];
 
