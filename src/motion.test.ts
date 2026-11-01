@@ -207,20 +207,85 @@ describe("planMotion", () => {
     });
   });
 
-  it("signs an indexed displacement", () => {
+  it("signs an indexed displacement and shows the address sum", () => {
     expect(planMotion(facts({
       mnemonic: "LD (IX+0X05),A",
       a: 0x99,
       ixBefore: 0x4000,
-    }))).toMatchObject({
-      moves: [{ to: { type: "mem", address: 0x4005 }, value: 0x99 }],
+    }))).toEqual({
+      type: "index",
+      reg: "IX",
+      base: 0x4000,
+      disp: 5,
+      address: 0x4005,
+      move: {
+        from: { type: "reg", name: "a" },
+        to: { type: "mem", address: 0x4005 },
+        value: 0x99,
+        width: 8,
+        pop: false,
+      },
     });
     expect(planMotion(facts({
       mnemonic: "LD A,(IX+0XFF)",
       a: 0x77,
       ixBefore: 0x4000,
     }))).toMatchObject({
-      moves: [{ from: { type: "mem", address: 0x3fff }, to: { type: "reg", name: "a" }, value: 0x77 }],
+      type: "index",
+      reg: "IX",
+      base: 0x4000,
+      disp: -1,
+      address: 0x3fff,
+      move: { from: { type: "mem", address: 0x3fff }, to: { type: "reg", name: "a" }, value: 0x77, width: 8 },
+    });
+    expect(planMotion(facts({
+      mnemonic: "LD (IY+0X01),B",
+      bc: 0x2200,
+      iyBefore: 0x5000,
+    }))).toMatchObject({
+      type: "index",
+      reg: "IY",
+      base: 0x5000,
+      disp: 1,
+      address: 0x5001,
+      move: { from: { type: "reg", name: "b" }, to: { type: "mem", address: 0x5001 }, value: 0x22 },
+    });
+    expect(planMotion(facts({
+      mnemonic: "LD (IX+0X03),0X44",
+      ixBefore: 0x4000,
+    }))).toMatchObject({
+      type: "index",
+      disp: 3,
+      address: 0x4003,
+      move: { from: { type: "source" }, to: { type: "mem", address: 0x4003 }, value: 0x44 },
+    });
+    expect(planMotion(facts({
+      mnemonic: "LD BC,(IX+0X03)",
+      bc: 0x1234,
+      ixBefore: 0x4000,
+    })).type).toBe("pair");
+
+    const plans = run(`
+      ORG 0100H
+      LD IX, 4000H
+      LD A, (IX+03H)
+      LD IY, 5000H
+      LD B, 22H
+      LD (IY+01H), B
+      LD (IX+0FFH), A
+      HALT
+      ORG 4003H
+      DB 0ABH
+    `);
+    expect(plans.find((plan) => plan.type === "index" && plan.move.to.type === "reg")).toMatchObject({
+      reg: "IX", base: 0x4000, disp: 3, address: 0x4003,
+      move: { value: 0xab, to: { type: "reg", name: "a" } },
+    });
+    expect(plans.find((plan) => plan.type === "index" && plan.reg === "IY")).toMatchObject({
+      base: 0x5000, disp: 1, address: 0x5001, move: { value: 0x22, from: { type: "reg", name: "b" } },
+    });
+    expect(plans.find((plan) => plan.type === "index" && plan.disp < 0)).toMatchObject({
+      disp: -1, address: 0x3fff, move: { value: 0xab },
     });
   });
 

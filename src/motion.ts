@@ -6,6 +6,10 @@ import { formatStackLabel } from "./stack";
 /** A short trip, about half a second. Stepping again cancels whatever is still in the air. */
 export const MOTION_MS = 520;
 
+/** Leave the index-plus-displacement sum up, then carry the byte. */
+export const INDEX_HOLD_MS = 480;
+export const INDEX_MS = INDEX_HOLD_MS + MOTION_MS;
+
 /** A word splits into two bytes, or two bytes join into a word, then the chip finishes the trip. */
 export const PAIR_MS = 1080;
 
@@ -262,6 +266,17 @@ export interface BitMotion {
   zeroAfter: boolean;
 }
 
+/** The index register plus a signed displacement, then the byte that uses that address. */
+export interface IndexMotion {
+  type: "index";
+  reg: "IX" | "IY";
+  base: number;
+  /** Signed displacement, from -128 to 127. */
+  disp: number;
+  address: number;
+  move: Travel;
+}
+
 export type MotionPlan =
   | { type: "none" }
   | { type: "swap"; group: "af" | "exx" }
@@ -275,7 +290,8 @@ export type MotionPlan =
   | WordMotion
   | DaaMotion
   | BranchMotion
-  | NibbleMotion;
+  | NibbleMotion
+  | IndexMotion;
 
 export interface MotionFacts {
   mnemonic: string;
@@ -486,6 +502,9 @@ export function motionMemoryAddress(plan: MotionPlan): number | undefined {
   if (plan.type === "pair" && plan.word.type === "mem") {
     return plan.word.address;
   }
+  if (plan.type === "index") {
+    return plan.address;
+  }
   if (plan.type !== "travel") {
     return undefined;
   }
@@ -643,7 +662,34 @@ function planLoad(destText: string, srcText: string, facts: MotionFacts): Motion
       : dest.kind === "reg"
         ? valueOf(dest.name, facts)
         : 0;
+  const indexed = indexMove(dest, src);
+  if (indexed !== undefined) {
+    const base = (indexed.reg === "IX" ? facts.ixBefore : facts.iyBefore) & 0xffff;
+    const disp = indexed.disp >= 0x80 ? indexed.disp - 0x100 : indexed.disp;
+    const address = (base + disp) & 0xffff;
+    return {
+      type: "index",
+      reg: indexed.reg,
+      base,
+      disp,
+      address,
+      move: carry(from, to, value, 8),
+    };
+  }
   return { type: "travel", moves: [carry(from, to, value, width)] };
+}
+
+/** An (IX+d) or (IY+d) byte move. A 16-bit end stays a pair split or join. */
+function indexMove(dest: Operand, src: Operand): { reg: "IX" | "IY"; disp: number } | undefined {
+  const indexed = dest.kind === "idx" ? dest : src.kind === "idx" ? src : undefined;
+  const other = dest.kind === "idx" ? src : dest;
+  if (indexed === undefined) {
+    return undefined;
+  }
+  if (other.kind === "imm" || (other.kind === "reg" && widthOf(other.name) === 8)) {
+    return { reg: indexed.reg, disp: indexed.disp };
+  }
+  return undefined;
 }
 
 function place(operand: Operand, facts: MotionFacts): Anchor | undefined {

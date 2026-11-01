@@ -6,6 +6,8 @@ import {
   COUNTER_MS,
   DAA_MS,
   LOGIC_MS,
+  INDEX_HOLD_MS,
+  INDEX_MS,
   MOTION_MS,
   NIBBLE_MS,
   PAIR_MS,
@@ -22,6 +24,7 @@ import {
   type BranchMotion,
   type DaaMotion,
   type FlagPicture,
+  type IndexMotion,
   type MotionPlan,
   type NibbleMotion,
   type PairMotion,
@@ -177,6 +180,8 @@ export class MotionStage {
       this.flyBranch(input.plan, input.format, input.banks);
     } else if (input.plan.type === "nibble") {
       this.flyNibble(input.plan, input.format, input.banks);
+    } else if (input.plan.type === "index") {
+      this.flyIndex(input.plan, input.format, input.banks, input.sourceRect);
     }
     if (input.stackMark !== undefined) {
       this.slideStack(input.stackMark.from, input.stackMark.live);
@@ -319,6 +324,66 @@ export class MotionStage {
       { transform: `translate(${midX}px, ${midY}px) scale(1.08)`, offset: 0.62 },
       { transform: `translate(${end.x}px, ${end.y}px) scale(1)` },
     ]);
+  }
+
+  private flyIndex(
+    plan: IndexMotion,
+    format: DisplayFormat,
+    banks: Banks,
+    sourceRect: Box | undefined,
+  ): void {
+    const halves: RegName[] = plan.reg === "IX" ? ["ixh", "ixl"] : ["iyh", "iyl"];
+    const boxes = halves
+      .map((name) => boxOf(this.anchorElement({ type: "reg", name }, banks)))
+      .filter((box): box is Box => box !== undefined);
+    const near = boxes.length > 0 ? unionBox(boxes) : { left: 240, top: 72, width: 120, height: 36 };
+    const sign = plan.disp < 0 ? "-" : "+";
+    const board = this.placeBoard("index-board", 360, 64, near);
+    board.dataset.reg = plan.reg;
+    board.dataset.base = String(plan.base & 0xffff);
+    board.dataset.disp = String(plan.disp);
+    board.dataset.address = String(plan.address & 0xffff);
+    board.dataset.value = String(plan.move.value);
+    const chip = (className: string, text: string) => {
+      const span = this.root.ownerDocument.createElement("span");
+      span.className = className;
+      span.textContent = text;
+      return span;
+    };
+    board.append(
+      chip("index-reg", plan.reg),
+      chip("index-base", formatWord(plan.base, format).trim()),
+      chip("index-sign", sign),
+      chip("index-disp", formatByte(Math.abs(plan.disp), format).trim()),
+      chip("index-eq", "="),
+      chip("index-address", formatWord(plan.address, format).trim()),
+    );
+    board.style.width = "max-content";
+    board.style.height = "auto";
+    const width = board.offsetWidth || 360;
+    const height = board.offsetHeight || 64;
+    const view = this.root.ownerDocument.defaultView;
+    const viewWidth = view?.innerWidth || 1200;
+    const viewHeight = view?.innerHeight || 900;
+    let left = near.left + near.width / 2 - width / 2;
+    left = Math.max(12, Math.min(left, Math.max(12, viewWidth - width - 12)));
+    let top = near.top - height - 12;
+    if (top < 12) {
+      top = near.top + near.height + 12;
+    }
+    if (top + height > viewHeight - 8) {
+      top = Math.max(12, viewHeight - height - 8);
+    }
+    board.style.transform = `translate(${left}px, ${top}px)`;
+    board.dataset.left = String(left);
+    board.dataset.top = String(top);
+    const generation = this.generation;
+    this.later(this.scaled(INDEX_HOLD_MS), () => {
+      if (generation !== this.generation) {
+        return;
+      }
+      this.flyToken(plan.move, format, banks, sourceRect);
+    });
   }
 
   private flyPair(
@@ -1577,6 +1642,8 @@ function planDuration(plan: MotionPlan): number {
       return NIBBLE_MS;
     case "pair":
       return PAIR_MS;
+    case "index":
+      return INDEX_MS;
     default:
       return MOTION_MS;
   }
