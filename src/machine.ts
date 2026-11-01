@@ -1,6 +1,7 @@
 import { hi, lo } from "z80-base";
 import { Z80, type Hal } from "z80-emulator";
 import { assemble, type AssembleError } from "./assemble";
+import { destinationKeys, trailingComment } from "./comments";
 import { ConsoleDevice } from "./console";
 import { disassembleAt } from "./disasm";
 import { recordStackStep, type StackWord } from "./stack";
@@ -67,6 +68,7 @@ export interface MachineSnapshot {
   stackWords: [number, StackWord][];
   stackTouched: number[];
   changed: string[];
+  registerComments: [string, string][];
 }
 
 export class Machine {
@@ -93,6 +95,8 @@ export class Machine {
 
   private image: Uint8Array | null = null;
   private sourceLines: ReadonlyMap<number, number> = new Map();
+  private sourceText: readonly string[] = [];
+  private registerComments = new Map<string, string>();
   private afAltActive = false;
   private exxAltActive = false;
   private recording = false;
@@ -138,6 +142,7 @@ export class Machine {
     this.image = result.image;
     this.origin = result.origin;
     this.sourceLines = result.sourceLines;
+    this.sourceText = source.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
     this.errors = [];
     this.ready = true;
     this.reset();
@@ -169,8 +174,14 @@ export class Machine {
     this.recorded = [];
     this.accesses = [];
     this.history = [];
+    this.registerComments.clear();
     this.console.clear();
     this.refreshNext();
+  }
+
+  /** Comment from the latest instruction that wrote this register, if that line had one. */
+  registerComment(key: string): string | undefined {
+    return this.registerComments.get(key);
   }
 
   clearConsole(): void {
@@ -231,6 +242,7 @@ export class Machine {
       this.changed.add("badge.main.exx");
       this.changed.add("badge.alt.exx");
     }
+    this.noteRegisterComment(pc, viewed.text, fetchCount);
   }
 
   banks(): Banks {
@@ -406,6 +418,7 @@ export class Machine {
       stackWords: [...this.stackWords.entries()].map(([address, word]) => [address, { ...word }]),
       stackTouched: [...this.stackTouched],
       changed: [...this.changed],
+      registerComments: [...this.registerComments.entries()],
     };
   }
 
@@ -456,7 +469,28 @@ export class Machine {
     for (const key of previous.changed) {
       this.changed.add(key);
     }
+    this.registerComments.clear();
+    for (const [key, comment] of previous.registerComments) {
+      this.registerComments.set(key, comment);
+    }
     this.refreshNext();
+  }
+
+  private noteRegisterComment(pc: number, mnemonic: string, length: number): void {
+    const line = this.sourceLines.get(pc & 0xffff);
+    const comment = trailingComment(line === undefined ? undefined : this.sourceText[line - 1]);
+    const jumped = (this.cpu.regs.pc & 0xffff) !== ((pc + length) & 0xffff);
+    const sides = {
+      af: this.afAltActive ? "alt" as const : "main" as const,
+      exx: this.exxAltActive ? "alt" as const : "main" as const,
+    };
+    for (const key of destinationKeys(mnemonic, sides, jumped)) {
+      if (comment === undefined) {
+        this.registerComments.delete(key);
+      } else {
+        this.registerComments.set(key, comment);
+      }
+    }
   }
 
   private noteOperandAccess(fetchCount: number): void {

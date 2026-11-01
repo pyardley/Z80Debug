@@ -959,6 +959,10 @@ export function mount(root: HTMLElement): void {
     }
   }
 
+  function helpFor(key: string, builtin?: string): string | undefined {
+    return machine.registerComment(key) ?? builtin;
+  }
+
   function paintSystem(): void {
     const host = required<HTMLElement>(root, "#system-regs");
     host.replaceChildren();
@@ -966,18 +970,18 @@ export function mount(root: HTMLElement): void {
     const grid = document.createElement("div");
     grid.className = "system-regs plate";
     grid.append(
-      regCell(REGISTER_HELP.pc.label, formatWord(regs.pc, format), "pc", true, REGISTER_HELP.pc.help),
-      regCell(REGISTER_HELP.sp.label, formatWord(regs.sp, format), "sp", true, REGISTER_HELP.sp.help),
+      regCell(REGISTER_HELP.pc.label, formatWord(regs.pc, format), "pc", true, helpFor("pc", REGISTER_HELP.pc.help)),
+      regCell(REGISTER_HELP.sp.label, formatWord(regs.sp, format), "sp", true, helpFor("sp", REGISTER_HELP.sp.help)),
       regPair("ix", [
-        regCell("IXH", formatByte((regs.ix >> 8) & 0xff, format), "ixh", false),
-        regCell("IXL", formatByte(regs.ix & 0xff, format), "ixl", false),
+        regCell("IXH", formatByte((regs.ix >> 8) & 0xff, format), "ixh", false, helpFor("ixh")),
+        regCell("IXL", formatByte(regs.ix & 0xff, format), "ixl", false, helpFor("ixl")),
       ]),
       regPair("iy", [
-        regCell("IYH", formatByte((regs.iy >> 8) & 0xff, format), "iyh", false),
-        regCell("IYL", formatByte(regs.iy & 0xff, format), "iyl", false),
+        regCell("IYH", formatByte((regs.iy >> 8) & 0xff, format), "iyh", false, helpFor("iyh")),
+        regCell("IYL", formatByte(regs.iy & 0xff, format), "iyl", false, helpFor("iyl")),
       ]),
-      regCell(REGISTER_HELP.i.label, formatByte(regs.i, format), "i", false, REGISTER_HELP.i.help),
-      regCell(REGISTER_HELP.r.label, formatByte(machine.refreshRegister(), format), "r", false, REGISTER_HELP.r.help),
+      regCell(REGISTER_HELP.i.label, formatByte(regs.i, format), "i", false, helpFor("i", REGISTER_HELP.i.help)),
+      regCell(REGISTER_HELP.r.label, formatByte(machine.refreshRegister(), format), "r", false, helpFor("r", REGISTER_HELP.r.help)),
     );
     host.append(grid);
   }
@@ -1005,8 +1009,8 @@ export function mount(root: HTMLElement): void {
     const afRow = document.createElement("div");
     afRow.className = "reg-row";
     afRow.append(
-      regCell("A", formatByte(hi(bank.af), format), `${prefix}.a`, false),
-      regCell("F", formatByte(lo(bank.af), format), `${prefix}.f`, false),
+      regCell("A", formatByte(hi(bank.af), format), `${prefix}.a`, false, helpFor(`${prefix}.a`)),
+      regCell("F", formatByte(lo(bank.af), format), `${prefix}.f`, false, helpFor(`${prefix}.f`)),
     );
     af.append(afRow, flagRow(prefix, lo(bank.af)));
 
@@ -1058,7 +1062,7 @@ export function mount(root: HTMLElement): void {
     const row = document.createElement("div");
     row.className = "reg-row";
     for (const [label, value, key] of cells) {
-      row.append(regCell(label, formatByte(value, format), key, false));
+      row.append(regCell(label, formatByte(value, format), key, false, helpFor(key)));
     }
     return row;
   }
