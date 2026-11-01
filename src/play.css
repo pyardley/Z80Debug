@@ -882,6 +882,39 @@ textarea {
   border-color: #1f4d32;
 }
 
+.index-board {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 81;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.9rem;
+  background: #fffaf2;
+  color: #140e08;
+  border: 4px solid #6b3e22;
+  border-radius: 16px;
+  box-shadow: 0 10px 0 rgba(60, 30, 10, 0.18);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 800;
+  font-size: 22px;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.index-sign, .index-eq {
+  color: #6b3e22;
+}
+
+.index-address {
+  background: #e7f6e4;
+  border: 3px solid #1f4d32;
+  border-radius: 8px;
+  padding: 0.05rem 0.35rem;
+}
+
 .logic-board, .counter-board, .alu-board, .word-board, .daa-board, .nibble-board {
   position: fixed;
   left: 0;

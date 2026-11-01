@@ -436,6 +436,19 @@ describe("file menu", () => {
     expect(refresh?.querySelector(".reg-name")?.textContent).toBe("R refresh");
     expect(refresh?.querySelector(".reg-bubble")?.textContent).toContain("Increments as instructions run");
 
+    const pc = root.querySelector("[data-key='pc']")?.closest(".reg");
+    const sp = root.querySelector("[data-key='sp']")?.closest(".reg");
+    expect(pc?.classList.contains("reg-help")).toBe(true);
+    expect(pc?.querySelector(".reg-name")?.textContent).toBe("PC");
+    expect(pc?.querySelector(".reg-bubble")?.textContent).toBe(
+      "PC, Program counter. The address of the next instruction.",
+    );
+    expect(sp?.classList.contains("reg-help")).toBe(true);
+    expect(sp?.querySelector(".reg-name")?.textContent).toBe("SP");
+    expect(sp?.querySelector(".reg-bubble")?.textContent).toBe(
+      "SP, Stack pointer. The address of the top word.",
+    );
+
     chooseExample(root, "sample");
     expect(root.querySelector("#next-instruction")?.textContent).toContain("LD SP,0XFF00");
     expect(root.querySelector("#next-instruction")?.textContent).not.toContain("cycles");
@@ -469,6 +482,24 @@ describe("file menu", () => {
     expect(document.querySelector(".alu-bit")).toBeNull();
     expect(root.querySelector("#motion-speed")).toBeNull();
     expect(root.querySelector("#motion-pause")).toBeNull();
+  });
+
+  it("steps an indexed load without an address board", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const editor = editorValue(root);
+    editor.value = [
+      "        ORG 0100H",
+      "        LD IX, 4000H",
+      "        LD A, (IX+03H)",
+      "        HALT",
+    ].join("\n");
+    click(root, "#assemble");
+    click(root, "#step");
+    click(root, "#step");
+    expect(root.querySelector("#last-instruction")?.textContent).toContain("LD A,(IX+");
+    expect(document.querySelector(".index-board")).toBeNull();
   });
 });
 

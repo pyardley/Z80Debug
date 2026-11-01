@@ -966,8 +966,8 @@ export function mount(root: HTMLElement): void {
     const grid = document.createElement("div");
     grid.className = "system-regs plate";
     grid.append(
-      regCell("PC", formatWord(regs.pc, format), "pc", true),
-      regCell("SP", formatWord(regs.sp, format), "sp", true),
+      regCell(REGISTER_HELP.pc.label, formatWord(regs.pc, format), "pc", true, REGISTER_HELP.pc.help),
+      regCell(REGISTER_HELP.sp.label, formatWord(regs.sp, format), "sp", true, REGISTER_HELP.sp.help),
       regPair("ix", [
         regCell("IXH", formatByte((regs.ix >> 8) & 0xff, format), "ixh", false),
         regCell("IXL", formatByte(regs.ix & 0xff, format), "ixl", false),

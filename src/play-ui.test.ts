@@ -47,7 +47,7 @@ describe("tabletop debugger", () => {
     vi.restoreAllMocks();
     document.body.replaceChildren();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    document.querySelectorAll(".travel-token, .flying-badge, .flying-stack-mark, .shift-bit, .logic-bit, .logic-op, .logic-result, .logic-board, .counter-roll, .counter-board, .counter-op, .alu-bit, .alu-carry, .alu-board, .alu-op, .alu-result, .word-byte, .word-carry, .word-board, .word-op, .word-result, .daa-board, .daa-flag, .daa-digit, .daa-correction, .daa-result, .branch-hop, .nibble-chip, .nibble-board, .nibble-result").forEach((node) => node.remove());
+    document.querySelectorAll(".travel-token, .flying-badge, .flying-stack-mark, .shift-bit, .logic-bit, .logic-op, .logic-result, .logic-board, .counter-roll, .counter-board, .counter-op, .alu-bit, .alu-carry, .alu-board, .alu-op, .alu-result, .word-byte, .word-carry, .word-board, .word-op, .word-result, .daa-board, .daa-flag, .daa-digit, .daa-correction, .daa-result, .branch-hop, .nibble-chip, .nibble-board, .nibble-result, .index-board").forEach((node) => node.remove());
   });
 
   it("sends an immediate on a chip and keeps the register correct", () => {
@@ -334,6 +334,12 @@ describe("tabletop debugger", () => {
     expect(root.querySelector("[data-key='i']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toContain("Interrupt page");
     expect(root.querySelector("[data-key='r']")?.closest(".reg")?.querySelector(".reg-name")?.textContent).toBe("R refresh");
     expect(root.querySelector("[data-key='r']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toContain("Increments as instructions run");
+    expect(root.querySelector("[data-key='pc']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toBe(
+      "PC, Program counter. The address of the next instruction.",
+    );
+    expect(root.querySelector("[data-key='sp']")?.closest(".reg")?.querySelector(".reg-bubble")?.textContent).toBe(
+      "SP, Stack pointer. The address of the top word.",
+    );
 
     chooseExample(root, "sample");
     expect(root.querySelector("#next-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 10");
@@ -341,6 +347,55 @@ describe("tabletop debugger", () => {
     expect(root.querySelector("#last-instruction")?.textContent).toContain("LD SP,0XFF00");
     expect(root.querySelector("#last-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 10");
     expect(root.querySelector("#next-instruction")?.parentElement?.querySelector(".insn-cycles")?.textContent).toBe("cycles 14");
+  });
+
+  it("shows the index plus the displacement, then carries the byte", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    mount(root);
+    const editor = editorValue(root);
+    editor.value = [
+      "        ORG 0100H",
+      "        LD IX, 4000H",
+      "        LD A, (IX+03H)",
+      "        LD IY, 5000H",
+      "        LD B, 22H",
+      "        LD (IY+01H), B",
+      "        HALT",
+      "        ORG 4003H",
+      "        DB 0ABH",
+    ].join("\n");
+    click(root, "#assemble");
+    click(root, "#motion-toggle");
+    click(root, "#step");
+    click(root, "#motion-toggle");
+    click(root, "#step");
+    const board = document.querySelector(".index-board");
+    expect(board?.getAttribute("data-reg")).toBe("IX");
+    expect(board?.getAttribute("data-base")).toBe("16384");
+    expect(board?.getAttribute("data-disp")).toBe("3");
+    expect(board?.getAttribute("data-address")).toBe("16387");
+    expect(board?.getAttribute("data-value")).toBe("171");
+    expect(board?.querySelector(".index-reg")?.textContent).toBe("IX");
+    expect(board?.querySelector(".index-base")?.textContent).toBe("4000");
+    expect(board?.querySelector(".index-sign")?.textContent).toBe("+");
+    expect(board?.querySelector(".index-disp")?.textContent).toBe("03");
+    expect(board?.querySelector(".index-address")?.textContent).toBe("4003");
+    expect(document.querySelector(".travel-token")).toBeNull();
+    expect(text(root, "[data-key='main.a']")).toBe("AB");
+
+    click(root, "#step");
+    click(root, "#step");
+    click(root, "#step");
+    const store = document.querySelector(".index-board");
+    expect(store?.getAttribute("data-reg")).toBe("IY");
+    expect(store?.getAttribute("data-base")).toBe("20480");
+    expect(store?.getAttribute("data-disp")).toBe("1");
+    expect(store?.getAttribute("data-address")).toBe("20481");
+    expect(store?.querySelector(".index-sign")?.textContent).toBe("+");
+    expect(store?.querySelector(".index-disp")?.textContent).toBe("01");
+    expect(store?.querySelector(".index-address")?.textContent).toBe("5001");
+    expect(store?.getAttribute("data-value")).toBe("34");
   });
 
   it("pops SET into bits and returns A in the selected format", () => {

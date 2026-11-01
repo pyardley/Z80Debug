@@ -19,6 +19,14 @@ export const FLAG_HELP: Record<string, string> = {
 
 /** Short label on the strip, and the same kind of explanation a flag bubble uses. */
 export const REGISTER_HELP = {
+  pc: {
+    label: "PC",
+    help: "PC, Program counter. The address of the next instruction.",
+  },
+  sp: {
+    label: "SP",
+    help: "SP, Stack pointer. The address of the top word.",
+  },
   i: {
     label: "I page",
     help: "I, Interrupt page. The high byte of the address used in interrupt mode 2. The device supplies the low byte.",
